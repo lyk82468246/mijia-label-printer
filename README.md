@@ -170,6 +170,7 @@ The web UI supports text, QR codes, barcodes, images, composite labels, batch pr
 | `--font PATH` | TrueType/OpenType font file |
 | `--font-size N` | Font size in dots |
 | `--align left/center/right` | Text alignment |
+| `--rotation 0/90/180/270` | Rotate label content counterclockwise |
 | `--line-spacing X` | Text line spacing multiplier |
 | `--frame-delay X` | Delay between command frames |
 | `--data-delay X` | Delay between image data frames |

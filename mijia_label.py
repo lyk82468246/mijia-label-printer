@@ -362,6 +362,52 @@ def image_to_raster(image: Image.Image, threshold: int = 128, invert: bool = Fal
     return bytes(raster), height
 
 
+def raster_to_image(raster: bytes, height: int) -> Image.Image:
+    """Convert packed 1bpp printer raster back to a grayscale preview image."""
+    if height < 1:
+        raise ValueError("光栅高度必须大于 0")
+    expected = BYTES_PER_ROW * height
+    if len(raster) != expected:
+        raise ValueError(f"光栅长度不正确：期望 {expected} 字节，实际 {len(raster)} 字节")
+    image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
+    pixels = image.load()
+    for y in range(height):
+        row_offset = y * BYTES_PER_ROW
+        for x in range(HEAD_WIDTH_DOTS):
+            if raster[row_offset + (x >> 3)] & (0x80 >> (x & 7)):
+                pixels[x, y] = 0
+    return image
+
+
+def rotate_print_image(image: Image.Image, rotation: int | str = 0) -> Image.Image:
+    """Rotate label content and normalize the result to the 96-dot head width.
+
+    Angles are counterclockwise. When a rotated label is wider than the fixed
+    print head, it is scaled proportionally before thresholding so the preview
+    matches the actual raster sent to USB.
+    """
+    try:
+        angle = int(rotation) % 360
+    except (TypeError, ValueError):
+        raise ValueError("旋转角度必须是 0、90、180 或 270")
+    if angle not in (0, 90, 180, 270):
+        raise ValueError("旋转角度必须是 0、90、180 或 270")
+
+    if angle == 0:
+        rotated = image
+    elif angle == 90:
+        rotated = image.transpose(Image.Transpose.ROTATE_90)
+    elif angle == 180:
+        rotated = image.transpose(Image.Transpose.ROTATE_180)
+    else:
+        rotated = image.transpose(Image.Transpose.ROTATE_270)
+
+    if rotated.width != HEAD_WIDTH_DOTS:
+        raster, height = image_to_raster(rotated, threshold=128, invert=False)
+        rotated = raster_to_image(raster, height)
+    return rotated
+
+
 # ---------------------------------------------------------------------------
 # Label rendering
 # ---------------------------------------------------------------------------
@@ -782,7 +828,7 @@ def render_batch_spec(template, row: dict) -> dict:
 
 
 def _composite_from_spec(spec: dict, args) -> Image.Image:
-    return make_composite_label(
+    image = make_composite_label(
         text=spec.get("text"),
         qr=spec.get("qr"),
         barcode=spec.get("barcode"),
@@ -797,6 +843,7 @@ def _composite_from_spec(spec: dict, args) -> Image.Image:
         show_barcode_text=not spec.get("no_barcode_text", args.no_barcode_text),
         spacing=int(spec.get("spacing", args.spacing)),
     )
+    return rotate_print_image(image, spec.get("rotation", args.rotation))
 
 
 def run_batch(args) -> int:
@@ -892,6 +939,7 @@ def add_common_options(parser: argparse.ArgumentParser, suppressed: bool = False
     parser.add_argument("--font", default=default, help="TrueType/OpenType 字体文件路径")
     parser.add_argument("--font-size", type=int, default=optional_default(18), help="文字字号，单位：点")
     parser.add_argument("--align", choices=["left", "center", "right"], default=optional_default("center"), help="文字对齐方式")
+    parser.add_argument("--rotation", type=int, choices=[0, 90, 180, 270], default=optional_default(0), help="打印内容逆时针旋转角度")
     parser.add_argument("--line-spacing", type=float, default=optional_default(1.15), help="文字行距倍数")
     parser.add_argument("--qr-error", choices=["l", "m", "q", "s"], default=optional_default("m"), help="二维码纠错等级")
     parser.add_argument("--barcode-format", default=optional_default("code128"), help="条形码格式")
@@ -1018,6 +1066,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         raise ValueError(f"未知命令: {args.command}")
 
+    image = rotate_print_image(image, args.rotation)
     preview_path = Path(args.preview) if args.preview else ROOT / f"mijia_label_{args.command}_preview.png"
     image.save(preview_path)
     print(f"预览: {preview_path}  尺寸: {image.width}x{image.height}")

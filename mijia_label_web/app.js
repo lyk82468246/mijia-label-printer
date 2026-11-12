@@ -32,6 +32,7 @@
     margin: $("margin"),
     fontSize: $("fontSize"),
     align: $("align"),
+    rotation: $("rotation"),
     lineSpacing: $("lineSpacing"),
     threshold: $("threshold"),
     qrError: $("qrError"),
@@ -78,6 +79,7 @@
       margin: Number(elements.margin.value),
       font_size: Number(elements.fontSize.value),
       align: elements.align.value,
+      rotation: Number(elements.rotation.value),
       line_spacing: Number(elements.lineSpacing.value),
       threshold: Number(elements.threshold.value),
       invert: elements.invert.checked,
@@ -158,7 +160,7 @@
       validatePayload(payload);
       const data = await api("/api/preview", payload);
       elements.previewImage.src = data.image;
-      elements.previewMeta.textContent = `预览尺寸：${data.width} × ${data.height} 点`;
+      elements.previewMeta.textContent = `预览尺寸：${data.width} × ${data.height} 点 · 纸张流动：自下而上`;
       clearMessage();
     } catch (error) {
       setMessage(`预览失败：${error.message}`, "error");
@@ -259,6 +261,7 @@
       margin: Number(elements.margin.value),
       font_size: Number(elements.fontSize.value),
       align: elements.align.value,
+      rotation: Number(elements.rotation.value),
       line_spacing: Number(elements.lineSpacing.value),
       qr_error: elements.qrError.value,
       barcode_format: elements.barcodeFormat.value,
@@ -340,8 +343,9 @@
 
   for (const id of [
     "textInput", "qrInput", "barcodeInput", "compositeText", "compositeQr",
-    "compositeBarcode", "caption", "margin", "fontSize", "align", "lineSpacing",
-    "threshold", "qrError", "barcodeFormat", "invert", "noBarcodeText",
+    "compositeBarcode", "caption", "margin", "fontSize", "align", "rotation",
+    "lineSpacing", "threshold", "qrError", "barcodeFormat", "invert",
+    "noBarcodeText",
   ]) {
     $(id).addEventListener("input", schedulePreview);
     $(id).addEventListener("change", schedulePreview);

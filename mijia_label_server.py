@@ -89,7 +89,7 @@ def prepare_uploaded_image(payload: dict) -> Image.Image:
     return raster_to_image(raster, height)
 
 
-def image_from_payload(payload: dict) -> Image.Image:
+def render_label_image(payload: dict) -> Image.Image:
     kind = payload.get("kind")
     margin = int(payload.get("margin", 4))
     font_path = payload.get("font") or None
@@ -150,6 +150,11 @@ def image_from_payload(payload: dict) -> Image.Image:
     raise ValueError(f"不支持的标签类型: {kind}")
 
 
+def image_from_payload(payload: dict) -> Image.Image:
+    image = render_label_image(payload)
+    return printer.rotate_print_image(image, payload.get("rotation", 0))
+
+
 def table_rows_from_payload(payload: dict) -> list[dict]:
     if payload.get("file"):
         return printer.parse_table_data_url(payload["file"], payload.get("filename", "upload.csv"))
@@ -174,6 +179,7 @@ def batch_common_options(payload: dict) -> dict:
         "margin": payload.get("margin", 4),
         "font_size": payload.get("font_size", 18),
         "align": payload.get("align", "center"),
+        "rotation": payload.get("rotation", 0),
         "line_spacing": payload.get("line_spacing", 1.15),
         "qr_error": payload.get("qr_error", "m"),
         "barcode_format": payload.get("barcode_format", "code128"),
