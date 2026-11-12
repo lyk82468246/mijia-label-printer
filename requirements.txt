@@ -1,0 +1,5 @@
+pillow>=10.0.0
+pycryptodome>=3.20.0
+segno>=1.6.0
+python-barcode>=0.16.0
+openpyxl>=3.1.0
