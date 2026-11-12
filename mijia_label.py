@@ -580,17 +580,30 @@ def image_to_raster(
     threshold: int = 128,
     invert: bool = False,
     dither: str = "auto",
+    vertical_scale: float = 1.0,
 ) -> tuple[bytes, int]:
     """Convert an image to the printer's packed 1bpp row-major raster.
 
     Downsampling is gamma-aware. `dither="auto"` keeps QR/barcode edges hard,
     uses Atkinson error diffusion for continuous tones, and combines 4x text
     supersampling with gamma correction for smoother glyph edges.
+
+    `vertical_scale` corrects feed-direction calibration. Values below 1 make
+    the printed label shorter; values above 1 make it longer.
     """
+    try:
+        vertical_scale = float(vertical_scale)
+    except (TypeError, ValueError):
+        vertical_scale = 1.0
+    vertical_scale = max(0.25, min(4.0, vertical_scale))
+
     gray = image.convert("L")
     if invert:
         gray = ImageOps.invert(gray)
-    height = max(1, round(gray.height * HEAD_WIDTH_DOTS / gray.width))
+    height = max(
+        1,
+        round(gray.height * HEAD_WIDTH_DOTS / gray.width * vertical_scale),
+    )
     resized = _gamma_aware_resize(gray, (HEAD_WIDTH_DOTS, height))
 
     # Mild edge restoration compensates for LANCZOS softness and thermal dot
@@ -650,6 +663,8 @@ def rotate_print_image(
         rotated = image.transpose(Image.Transpose.ROTATE_270)
 
     if rotated.width != HEAD_WIDTH_DOTS:
+        # Do not apply vertical_scale here; the final rasterization applies it
+        # exactly once to the feed direction.
         raster, height = image_to_raster(
             rotated,
             threshold=128,
@@ -1130,8 +1145,9 @@ def build_print_frames(
     image: Image.Image,
     include_handshake: bool = True,
     dither: str = "auto",
+    vertical_scale: float = 1.0,
 ) -> list[tuple[str, bytes]]:
-    raster, height = image_to_raster(image, dither=dither)
+    raster, height = image_to_raster(image, dither=dither, vertical_scale=vertical_scale)
     frames: list[tuple[str, bytes]] = []
     if include_handshake:
         frames.append(("set_connected", cmd_set_connected()))
@@ -1392,7 +1408,7 @@ def run_batch(args) -> int:
     total_bytes = 0
     frame_counts = []
     for image in images:
-        frames = build_print_frames(image, include_handshake=not args.no_handshake, dither=args.dither)
+        frames = build_print_frames(image, include_handshake=not args.no_handshake, dither=args.dither, vertical_scale=args.vertical_scale)
         frame_counts.append(frames)
         total_frames += len(frames)
         total_bytes += sum(len(frame) for _, frame in frames)
@@ -1447,6 +1463,12 @@ def add_common_options(parser: argparse.ArgumentParser, suppressed: bool = False
         type=normalize_dither,
         default=optional_default("auto"),
         help="仿色算法：auto/none/floyd-steinberg/atkinson/bayer4/bayer8",
+    )
+    parser.add_argument(
+        "--vertical-scale",
+        type=float,
+        default=optional_default(1.0),
+        help="走纸方向缩放校正，0.25-4.00；正方形过高时用 宽度/高度",
     )
     parser.add_argument("--preview-only", action="store_true", default=argparse.SUPPRESS if suppressed else False, help="只生成预览图，不打印")
     parser.add_argument("--preview", default=default, help="预览图输出路径")
@@ -1529,6 +1551,8 @@ def main(argv: list[str] | None = None) -> int:
     barcode_height = getattr(args, "barcode_height", None)
     if barcode_height is not None and not 8 <= barcode_height <= 96:
         raise ValueError("条码高度必须在 8-96 点之间")
+    if not 0.25 <= getattr(args, "vertical_scale", 1.0) <= 4.0:
+        raise ValueError("vertical-scale 必须在 0.25-4.00 之间")
 
     if args.command == "text":
         image = make_text_label(
@@ -1545,7 +1569,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.invert:
             image = ImageOps.invert(image)
         # Recreate through raster conversion path so threshold is applied.
-        raster, height = image_to_raster(image, threshold=args.threshold, invert=False, dither=args.dither)
+        raster, height = image_to_raster(image, threshold=args.threshold, invert=False, dither=args.dither, vertical_scale=args.vertical_scale)
         canvas = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
         pixels = canvas.load()
         for y in range(height):
@@ -1602,7 +1626,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         raise ValueError(f"未知命令: {args.command}")
 
-    image = rotate_print_image(image, args.rotation)
+    image = rotate_print_image(image, args.rotation, dither=args.dither)
     preview_path = Path(args.preview) if args.preview else ROOT / f"mijia_label_{args.command}_preview.png"
     image.save(preview_path)
     print(f"预览: {preview_path}  尺寸: {image.width}x{image.height}")

@@ -77,17 +77,21 @@ def raster_to_image(raster: bytes, height: int) -> Image.Image:
     return image
 
 
+def vertical_scale_from_payload(payload: dict) -> float:
+    try:
+        value = float(payload.get("vertical_scale", 1.0))
+    except (TypeError, ValueError):
+        value = 1.0
+    return max(0.25, min(4.0, value))
+
+
 def prepare_uploaded_image(payload: dict) -> Image.Image:
+    """Return the grayscale source image; final rasterization happens once in
+    image_from_payload so vertical-scale correction is not applied twice."""
     image = decode_data_url(payload["image"])
     if payload.get("invert"):
         image = ImageOps.invert(image)
-    raster, height = printer.image_to_raster(
-        image,
-        threshold=int(payload.get("threshold", 128)),
-        invert=False,
-        dither=printer.normalize_dither(payload.get("dither", "auto")),
-    )
-    return raster_to_image(raster, height)
+    return image
 
 
 def render_label_image(payload: dict) -> Image.Image:
@@ -171,12 +175,18 @@ def image_from_payload(payload: dict) -> Image.Image:
     """Render, rotate, and rasterize a payload so preview matches printing."""
     image = render_label_image(payload)
     dither = printer.normalize_dither(payload.get("dither", "auto"))
-    image = printer.rotate_print_image(image, payload.get("rotation", 0), dither=dither)
+    vertical_scale = vertical_scale_from_payload(payload)
+    image = printer.rotate_print_image(
+        image,
+        payload.get("rotation", 0),
+        dither=dither,
+    )
     raster, height = printer.image_to_raster(
         image,
         threshold=int(payload.get("threshold", 128)),
         invert=False,
         dither=dither,
+        vertical_scale=vertical_scale,
     )
     return raster_to_image(raster, height)
 
@@ -208,6 +218,7 @@ def batch_common_options(payload: dict) -> dict:
         "rotation": payload.get("rotation", 0),
         "line_spacing": payload.get("line_spacing", 1.15),
         "dither": payload.get("dither", "auto"),
+        "vertical_scale": payload.get("vertical_scale", 1.0),
         "qr_error": payload.get("qr_error", "m"),
         "barcode_format": payload.get("barcode_format", "code128"),
         "no_barcode_text": payload.get("no_barcode_text", False),
@@ -257,6 +268,7 @@ def print_batch_payload(payload: dict) -> dict:
                 image,
                 include_handshake=include_handshake,
                 dither=printer.normalize_dither(payload.get("dither", "auto")),
+                vertical_scale=vertical_scale_from_payload(payload),
             )
             bytes_sent = 0
             for name, frame in frames:
@@ -380,6 +392,7 @@ class LabelRequestHandler(BaseHTTPRequestHandler):
                     image,
                     include_handshake=not payload.get("no_handshake", False),
                     dither=printer.normalize_dither(payload.get("dither", "auto")),
+                    vertical_scale=vertical_scale_from_payload(payload),
                 )
                 total_bytes = sum(len(frame) for _, frame in frames)
                 device_path = printer.resolve_device_path(payload.get("device_path"))
@@ -444,6 +457,7 @@ class LabelRequestHandler(BaseHTTPRequestHandler):
                         image,
                         include_handshake=not payload.get("no_handshake", False),
                         dither=printer.normalize_dither(payload.get("dither", "auto")),
+                        vertical_scale=vertical_scale_from_payload(payload),
                     )
                     bytes_count = sum(len(frame) for _, frame in frames)
                     total_frames += len(frames)

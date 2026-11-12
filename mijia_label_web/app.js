@@ -40,6 +40,7 @@
     lineSpacing: $("lineSpacing"),
     threshold: $("threshold"),
     dither: $("dither"),
+    verticalScale: $("verticalScale"),
     qrError: $("qrError"),
     barcodeFormat: $("barcodeFormat"),
     invert: $("invert"),
@@ -207,6 +208,7 @@
       line_spacing: Number(elements.lineSpacing.value),
       threshold: Number(elements.threshold.value),
       dither: elements.dither.value,
+      vertical_scale: Number(elements.verticalScale.value),
       invert: elements.invert.checked,
       qr_error: elements.qrError.value,
       barcode_format: elements.barcodeFormat.value,
@@ -393,6 +395,7 @@
       rotation: Number(elements.rotation.value),
       line_spacing: Number(elements.lineSpacing.value),
       dither: elements.dither.value,
+      vertical_scale: Number(elements.verticalScale.value),
       qr_error: elements.qrError.value,
       barcode_format: elements.barcodeFormat.value,
       no_barcode_text: elements.noBarcodeText.checked,
@@ -480,7 +483,7 @@
     "barcodeDataFontSize", "barcodeCaptionFontSize", "barcodeHeight",
     "compositeText",
     "compositeQr", "compositeBarcode", "caption", "margin", "fontSize",
-    "align", "rotation", "lineSpacing", "threshold", "dither", "qrError",
+    "align", "rotation", "lineSpacing", "threshold", "dither", "verticalScale", "qrError",
     "barcodeFormat", "invert", "noBarcodeText",
   ]) {
     $(id).addEventListener("input", schedulePreview);

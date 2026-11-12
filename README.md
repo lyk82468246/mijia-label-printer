@@ -201,6 +201,8 @@ Text is rendered with 4x supersampling and gamma-aware downsampling. Uploaded im
 
 `--dither auto` keeps already-binary QR/barcode edges hard and uses Atkinson error diffusion for text, line art, and photos. You can also choose `floyd-steinberg`, ordered `bayer4`/`bayer8`, or `none` for a hard threshold. True RGB ClearType subpixel rendering is not possible on a monochrome thermal head; this uses the applicable parts—gamma-aware anti-aliasing, edge preservation, and perceptual dot placement.
 
+If a printed square is stretched along the paper-feed direction, use **纵向缩放校正 / `--vertical-scale`**. For a square source, set it to `printed width ÷ printed height`. For example, if 10 mm wide × 12 mm high is printed, use `10 ÷ 12 = 0.833`.
+
 ## Useful options
 
 | Option | Description |
@@ -210,6 +212,7 @@ Text is rendered with 4x supersampling and gamma-aware downsampling. Uploaded im
 | `--margin N` | Label margin in dots |
 | `--threshold N` | Black/white threshold, default `128` |
 | `--dither NAME` | `auto`, `none`, `floyd-steinberg`, `atkinson`, `bayer4`, or `bayer8` |
+| `--vertical-scale X` | Feed-direction calibration, `0.25`–`4.00`; default `1.0` |
 | `--invert` | Invert black and white |
 | `--font PATH` | TrueType/OpenType font file |
 | `--font-size N` | Font size in dots |
