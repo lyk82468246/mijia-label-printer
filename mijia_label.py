@@ -22,12 +22,12 @@ import argparse
 import base64
 import csv
 import ctypes
+import ctypes.wintypes as wintypes
 import io
 import json
 import struct
 import sys
 import time
-import winreg
 from pathlib import Path
 
 from Crypto.Cipher import AES
@@ -97,40 +97,117 @@ class OVERLAPPED(ctypes.Structure):
 # Device discovery
 # ---------------------------------------------------------------------------
 
-def _registry_value(key, name: str) -> str | None:
-    try:
-        value, _value_type = winreg.QueryValueEx(key, name)
-        return str(value)
-    except OSError:
-        return None
+DIGCF_PRESENT = 0x00000002
+DIGCF_DEVICEINTERFACE = 0x00000010
+
+
+class GUID(ctypes.Structure):
+    _fields_ = [
+        ("Data1", wintypes.DWORD),
+        ("Data2", wintypes.WORD),
+        ("Data3", wintypes.WORD),
+        ("Data4", ctypes.c_ubyte * 8),
+    ]
+
+
+GUID_DEVINTERFACE_USBPRINT = GUID(
+    0x28D78FAD,
+    0x5A12,
+    0x11D1,
+    (ctypes.c_ubyte * 8)(0xAE, 0x5B, 0x00, 0x00, 0xF8, 0x03, 0xA8, 0xC2),
+)
+
+
+class SP_DEVICE_INTERFACE_DATA(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("InterfaceClassGuid", GUID),
+        ("Flags", wintypes.DWORD),
+        ("Reserved", ctypes.c_size_t),
+    ]
+
+
+class SP_DEVICE_INTERFACE_DETAIL_DATA_W(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("DevicePath", wintypes.WCHAR * 1),
+    ]
+
+
+setupapi = ctypes.WinDLL("setupapi", use_last_error=True)
+setupapi.SetupDiGetClassDevsW.restype = wintypes.HANDLE
+setupapi.SetupDiGetClassDevsW.argtypes = [
+    ctypes.POINTER(GUID), wintypes.LPCWSTR, wintypes.HWND, wintypes.DWORD,
+]
+setupapi.SetupDiEnumDeviceInterfaces.argtypes = [
+    wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(GUID), wintypes.DWORD,
+    ctypes.POINTER(SP_DEVICE_INTERFACE_DATA),
+]
+setupapi.SetupDiGetDeviceInterfaceDetailW.argtypes = [
+    wintypes.HANDLE, ctypes.POINTER(SP_DEVICE_INTERFACE_DATA), ctypes.c_void_p,
+    wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), wintypes.HANDLE,
+]
+setupapi.SetupDiDestroyDeviceInfoList.argtypes = [wintypes.HANDLE]
 
 
 def find_usb_printer_paths(vendor_id: str = "VID_2717", product_id: str = "PID_507D") -> list[str]:
-    """Find Windows USB print-port device paths for the Mijia printer."""
+    """Find currently present USB printer-interface device paths.
+
+    SetupAPI reports only devices that are actually present now. The old USB
+    Monitor registry entries can remain after a device is unplugged, so they
+    must not be used as the sole source of connection state.
+    """
     paths: list[str] = []
-    ports_key_path = r"SYSTEM\CurrentControlSet\Control\Print\Monitors\USB Monitor\Ports"
-    try:
-        ports_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, ports_key_path)
-    except OSError:
+    handle = setupapi.SetupDiGetClassDevsW(
+        ctypes.byref(GUID_DEVINTERFACE_USBPRINT),
+        None,
+        None,
+        DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
+    )
+    if handle in (None, INVALID_HANDLE_VALUE):
         return paths
 
-    with ports_key:
+    vendor_marker = vendor_id.lower()
+    product_marker = product_id.lower()
+    try:
         index = 0
         while True:
-            try:
-                port_name = winreg.EnumKey(ports_key, index)
-            except OSError:
+            interface_data = SP_DEVICE_INTERFACE_DATA()
+            interface_data.cbSize = ctypes.sizeof(SP_DEVICE_INTERFACE_DATA)
+            if not setupapi.SetupDiEnumDeviceInterfaces(
+                handle, None, ctypes.byref(GUID_DEVINTERFACE_USBPRINT), index,
+                ctypes.byref(interface_data),
+            ):
                 break
             index += 1
-            try:
-                port_key = winreg.OpenKey(ports_key, port_name)
-            except OSError:
+
+            required = wintypes.DWORD(0)
+            setupapi.SetupDiGetDeviceInterfaceDetailW(
+                handle, ctypes.byref(interface_data), None, 0,
+                ctypes.byref(required), None,
+            )
+            if required.value < ctypes.sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W):
                 continue
-            with port_key:
-                device_id = _registry_value(port_key, "Device Id") or ""
-                device_path = _registry_value(port_key, "Device Path")
-                if device_path and vendor_id.upper() in device_id.upper() and product_id.upper() in device_id.upper():
-                    paths.append(device_path)
+
+            buffer = ctypes.create_string_buffer(required.value)
+            detail = ctypes.cast(
+                buffer, ctypes.POINTER(SP_DEVICE_INTERFACE_DETAIL_DATA_W)
+            ).contents
+            detail.cbSize = ctypes.sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W)
+            if not setupapi.SetupDiGetDeviceInterfaceDetailW(
+                handle, ctypes.byref(interface_data), buffer, required.value,
+                None, None,
+            ):
+                continue
+
+            path = ctypes.wstring_at(
+                ctypes.addressof(detail) + SP_DEVICE_INTERFACE_DETAIL_DATA_W.DevicePath.offset
+            )
+            lowered = path.lower()
+            if vendor_marker in lowered and product_marker in lowered:
+                paths.append(path)
+    finally:
+        setupapi.SetupDiDestroyDeviceInfoList(handle)
     return list(dict.fromkeys(paths))
 
 
