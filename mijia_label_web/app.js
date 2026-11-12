@@ -15,6 +15,9 @@
   const elements = {
     status: $("printerStatus"),
     checkButton: $("checkButton"),
+    connectionButton: $("connectionButton"),
+    connectionDialog: $("connectionDialog"),
+    closeConnectionDialog: $("closeConnectionDialog"),
     siteQr: $("siteQr"),
     siteUrl: $("siteUrl"),
     devicePaths: $("devicePaths"),
@@ -202,7 +205,9 @@
       elements.devicePaths.textContent = data.device_paths.length
         ? `设备：${data.device_paths[0]}`
         : "设备：未发现 USB 打印接口";
-      elements.siteQr.src = `/api/site-qr?url=${encodeURIComponent(data.url)}&t=${Date.now()}`;
+      if (elements.connectionDialog.open) {
+        elements.siteQr.src = `/api/site-qr?url=${encodeURIComponent(data.url)}&t=${Date.now()}`;
+      }
     } catch (error) {
       elements.status.textContent = "状态检查失败";
       elements.status.className = "status-badge error";
@@ -313,6 +318,22 @@
   });
 
   elements.checkButton.addEventListener("click", refreshStatus);
+
+  elements.connectionButton.addEventListener("click", () => {
+    elements.connectionDialog.showModal();
+    refreshStatus();
+  });
+
+  elements.closeConnectionDialog.addEventListener("click", () => {
+    elements.connectionDialog.close();
+  });
+
+  elements.connectionDialog.addEventListener("click", (event) => {
+    if (event.target === elements.connectionDialog) {
+      elements.connectionDialog.close();
+    }
+  });
+
   elements.previewButton.addEventListener("click", refreshPreview);
   elements.printButton.addEventListener("click", () => printLabel(false));
   elements.dryRunButton.addEventListener("click", () => printLabel(true));

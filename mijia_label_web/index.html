@@ -19,6 +19,7 @@
     </div>
     <div class="header-actions">
       <span id="printerStatus" class="status-badge checking">正在检查打印机…</span>
+      <button id="connectionButton" class="button ghost" type="button" aria-haspopup="dialog">扫码 / 连接</button>
       <button id="checkButton" class="button ghost" type="button">刷新状态</button>
     </div>
   </header>
@@ -148,22 +149,6 @@ USB 打印测试</textarea>
     </section>
 
     <aside class="side-column">
-      <section class="panel connection-panel" aria-labelledby="connection-title">
-        <div class="panel-heading">
-          <h2 id="connection-title">连接</h2>
-          <p>电脑通过 USB 打印。手机可扫描二维码打开同一页面。</p>
-        </div>
-        <div class="connection-body">
-          <img id="siteQr" alt="本页局域网地址二维码">
-          <div class="connection-meta">
-            <span class="meta-label">页面地址</span>
-            <a id="siteUrl" href="/" target="_blank" rel="noreferrer">正在获取…</a>
-            <span class="meta-label">USB 设备</span>
-            <span id="devicePaths" class="device-path">检查中…</span>
-          </div>
-        </div>
-      </section>
-
       <section class="panel preview-panel" aria-labelledby="preview-title">
         <div class="panel-heading">
           <h2 id="preview-title">预览</h2>
@@ -220,6 +205,26 @@ USB 打印测试</textarea>
       <div id="batchMessage" class="status-message" role="status" aria-live="polite"></div>
     </section>
   </main>
+
+  <dialog id="connectionDialog" class="connection-dialog" aria-labelledby="connection-title">
+    <div class="dialog-heading">
+      <div>
+        <h2 id="connection-title">扫码打开本页</h2>
+        <p>手机与电脑连在同一局域网时，扫描二维码即可使用同一个设计器。</p>
+      </div>
+      <button id="closeConnectionDialog" class="icon-button" type="button" aria-label="关闭连接菜单">×</button>
+    </div>
+    <div class="connection-body">
+      <img id="siteQr" alt="本页局域网地址二维码">
+      <div class="connection-meta">
+        <span class="meta-label">页面地址</span>
+        <a id="siteUrl" href="/" target="_blank" rel="noreferrer">正在获取…</a>
+        <span class="meta-label">USB 设备</span>
+        <span id="devicePaths" class="device-path">检查中…</span>
+      </div>
+    </div>
+    <p class="hint">如果手机无法打开，请确认两台设备在同一网络，并允许 Windows 防火墙访问该端口。</p>
+  </dialog>
 
   <script src="/static/app.js"></script>
 </body>
