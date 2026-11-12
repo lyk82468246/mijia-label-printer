@@ -64,6 +64,12 @@ python mijia_label.py text "Hello Mijia"
 python mijia_label.py text "Line 1" "Line 2" --preview-only
 ```
 
+When text is rotated 90° or 270°, a single line runs along the label length instead of wrapping at the 96-dot head width:
+
+```powershell
+python mijia_label.py text "A very long line" --rotation 90
+```
+
 ### QR code
 
 ```powershell

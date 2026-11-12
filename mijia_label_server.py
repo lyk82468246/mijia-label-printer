@@ -97,6 +97,7 @@ def render_label_image(payload: dict) -> Image.Image:
     align = payload.get("align", "center")
     line_spacing = float(payload.get("line_spacing", 1.15))
     caption = payload.get("caption") or None
+    rotation = int(payload.get("rotation", 0)) % 360
 
     if kind == "text":
         text = payload.get("text", "")
@@ -109,6 +110,7 @@ def render_label_image(payload: dict) -> Image.Image:
             margin=margin,
             align=align,
             line_spacing=line_spacing,
+            layout_rotation=rotation,
         )
     if kind == "qr":
         return printer.make_qr_label(

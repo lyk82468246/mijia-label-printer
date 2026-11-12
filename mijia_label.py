@@ -478,15 +478,46 @@ def make_text_label(
     margin: int = 4,
     align: str = "center",
     line_spacing: float = 1.15,
+    layout_rotation: int = 0,
 ) -> Image.Image:
+    """Render a text label.
+
+    For 90/270-degree output, `layout_rotation` tells this function to lay the
+    text out on a sideways canvas first. This prevents wrapping at the 96-dot
+    head width; `rotate_print_image` performs the final rotation afterward.
+    """
     font = load_font(font_path, font_size)
-    content_width = HEAD_WIDTH_DOTS - margin * 2
-    wrapped = wrap_text(text, font, content_width)
     try:
         ascent, descent = font.getmetrics()
         line_height = max(1, int((ascent + descent) * line_spacing))
     except Exception:
         line_height = max(1, int(font_size * 1.25 * line_spacing))
+
+    normalized_rotation = int(layout_rotation) % 360
+    raw_lines = text.replace("\r\n", "\n").split("\n") or [""]
+
+    if normalized_rotation in (90, 270):
+        # Text will run along the label length after the final rotation, so
+        # each source line may be arbitrarily long without wrapping.
+        content_length = max((font.getlength(line) for line in raw_lines), default=0)
+        width = max(12, int(content_length) + margin * 2)
+        height = max(12, margin * 2 + line_height * len(raw_lines))
+        image = Image.new("L", (width, height), 255)
+        draw = ImageDraw.Draw(image)
+        for index, line in enumerate(raw_lines):
+            line_width = draw.textlength(line, font=font)
+            if align == "left":
+                x = margin
+            elif align == "right":
+                x = width - margin - line_width
+            else:
+                x = (width - line_width) // 2
+            y = margin + index * line_height
+            draw.text((x, y), line, font=font, fill=0)
+        return image
+
+    content_width = HEAD_WIDTH_DOTS - margin * 2
+    wrapped = wrap_text(text, font, content_width)
     height = max(12, margin * 2 + line_height * len(wrapped))
     image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
     draw = ImageDraw.Draw(image)
@@ -1225,6 +1256,7 @@ def main(argv: list[str] | None = None) -> int:
             margin=args.margin,
             align=args.align,
             line_spacing=args.line_spacing,
+            layout_rotation=args.rotation,
         )
     elif args.command == "image":
         image = Image.open(args.path).convert("L")
