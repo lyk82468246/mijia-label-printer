@@ -598,13 +598,14 @@ def _render_vertical_barcode(
     font_size: int,
     module_scale: int = 3,
     quiet_modules: int = 8,
-    bar_height: int = 56,
+    bar_height: int = 44,
 ) -> Image.Image:
     """Render a barcode rotated so bar widths run along the label length.
 
     The 12 mm / 96-dot head is too narrow for many horizontal barcodes at a
     scannable module width. Rendering the symbol vertically gives each module
-    3 dots and keeps the 56-dot bar height inside the head width.
+    3 dots while keeping the bar height inside the head width. Human-readable
+    text is rotated with the symbol so it stays parallel to the bars.
     """
     font = load_font(font_path, font_size)
     quiet = quiet_modules * module_scale
@@ -615,9 +616,24 @@ def _render_vertical_barcode(
         text_lines.extend(wrap_text(str(data), font, HEAD_WIDTH_DOTS - 8))
     if caption:
         text_lines.extend(wrap_text(caption, font, HEAD_WIDTH_DOTS - 8))
-    text_height = _text_block_height(text_lines, font)
 
-    height = symbol_height + (4 + text_height if text_lines else 0)
+    height = symbol_height
+    rotated_text: Image.Image | None = None
+    if text_lines:
+        temp = Image.new("L", (10, 10), 255)
+        temp_draw = ImageDraw.Draw(temp)
+        line_heights = [
+            temp_draw.textbbox((0, 0), line, font=font)[3] + 2
+            for line in text_lines
+        ]
+        text_width = max(1, round(max(temp_draw.textlength(line, font=font) for line in text_lines)))
+        text_height = max(1, sum(line_heights))
+        text_canvas = Image.new("L", (text_width, text_height), 255)
+        _draw_text_lines(text_canvas, text_lines, font, 0)
+        # The symbol is the horizontal barcode rotated 90 degrees clockwise;
+        # rotate the text the same way so it remains parallel to the bars.
+        rotated_text = text_canvas.transpose(Image.Transpose.ROTATE_270)
+
     image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
     draw = ImageDraw.Draw(image)
     x0 = (HEAD_WIDTH_DOTS - bar_height) // 2
@@ -629,8 +645,11 @@ def _render_vertical_barcode(
                 fill=0,
             )
 
-    if text_lines:
-        _draw_text_lines(image, text_lines, font, symbol_height + 4)
+    if rotated_text is not None:
+        text_x = max(0, x0 - rotated_text.width - 2)
+        text_y = quiet + (len(code) * module_scale - rotated_text.height) // 2
+        text_y = max(0, min(text_y, height - rotated_text.height))
+        image.paste(rotated_text, (text_x, text_y))
     return image
 
 
