@@ -497,13 +497,15 @@ def make_text_label(
     raw_lines = text.replace("\r\n", "\n").split("\n") or [""]
 
     if normalized_rotation in (90, 270):
-        # Text will run along the label length after the final rotation, so
-        # each source line may be arbitrarily long without wrapping.
+        # Text will run along the label length after the final rotation. Lay
+        # it out on a full 96-dot-high sideways canvas so the final rotation
+        # does not rescale it; otherwise font size would be normalized away.
         content_length = max((font.getlength(line) for line in raw_lines), default=0)
         width = max(12, int(content_length) + margin * 2)
-        height = max(12, margin * 2 + line_height * len(raw_lines))
-        image = Image.new("L", (width, height), 255)
+        image = Image.new("L", (width, HEAD_WIDTH_DOTS), 255)
         draw = ImageDraw.Draw(image)
+        text_height = line_height * len(raw_lines)
+        y = max(0, (HEAD_WIDTH_DOTS - text_height) // 2)
         for index, line in enumerate(raw_lines):
             line_width = draw.textlength(line, font=font)
             if align == "left":
@@ -512,8 +514,8 @@ def make_text_label(
                 x = width - margin - line_width
             else:
                 x = (width - line_width) // 2
-            y = margin + index * line_height
             draw.text((x, y), line, font=font, fill=0)
+            y += line_height
         return image
 
     content_width = HEAD_WIDTH_DOTS - margin * 2
