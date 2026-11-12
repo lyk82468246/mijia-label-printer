@@ -82,6 +82,8 @@ python mijia_label.py qr "https://example.com" --caption "Device A-01"
 python mijia_label.py barcode "1234567890"
 ```
 
+Long barcodes are automatically rendered vertically. This keeps barcode modules at a scannable width on the 96-dot / 12 mm print head instead of shrinking the symbol horizontally.
+
 Hide the number under the barcode:
 
 ```powershell

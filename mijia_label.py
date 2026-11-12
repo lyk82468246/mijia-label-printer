@@ -553,6 +553,87 @@ def make_qr_label(
     return canvas
 
 
+def _barcode_module_code(data: str, barcode_format: str) -> str:
+    """Return a barcode as a string of 0/1 printer modules."""
+    try:
+        barcode_class = barcode_library.get_barcode_class(barcode_format)
+        built = barcode_class(data).build()
+    except Exception as exc:
+        raise ValueError(f"无法生成 {barcode_format} 条码: {exc}") from exc
+
+    if isinstance(built, (list, tuple)):
+        code = "".join(str(item) for item in built)
+    else:
+        code = str(built)
+    if not code or any(char not in "01" for char in code):
+        raise ValueError(f"条码类型 {barcode_format} 没有返回可用的模块数据")
+    return code
+
+
+def _text_block_height(lines: list[str], font) -> int:
+    if not lines:
+        return 0
+    temp = Image.new("L", (10, 10), 255)
+    draw = ImageDraw.Draw(temp)
+    return sum(draw.textbbox((0, 0), line, font=font)[3] + 2 for line in lines)
+
+
+def _draw_text_lines(image: Image.Image, lines: list[str], font, y: int) -> int:
+    if not lines:
+        return y
+    draw = ImageDraw.Draw(image)
+    for line in lines:
+        width = draw.textlength(line, font=font)
+        draw.text(((image.width - width) // 2, y), line, font=font, fill=0)
+        y += draw.textbbox((0, 0), line, font=font)[3] + 2
+    return y
+
+
+def _render_vertical_barcode(
+    code: str,
+    data: str,
+    show_text: bool,
+    caption: str | None,
+    font_path: str | None,
+    font_size: int,
+    module_scale: int = 3,
+    quiet_modules: int = 8,
+    bar_height: int = 56,
+) -> Image.Image:
+    """Render a barcode rotated so bar widths run along the label length.
+
+    The 12 mm / 96-dot head is too narrow for many horizontal barcodes at a
+    scannable module width. Rendering the symbol vertically gives each module
+    3 dots and keeps the 56-dot bar height inside the head width.
+    """
+    font = load_font(font_path, font_size)
+    quiet = quiet_modules * module_scale
+    symbol_height = len(code) * module_scale + quiet * 2
+
+    text_lines: list[str] = []
+    if show_text and data:
+        text_lines.extend(wrap_text(str(data), font, HEAD_WIDTH_DOTS - 8))
+    if caption:
+        text_lines.extend(wrap_text(caption, font, HEAD_WIDTH_DOTS - 8))
+    text_height = _text_block_height(text_lines, font)
+
+    height = symbol_height + (4 + text_height if text_lines else 0)
+    image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
+    draw = ImageDraw.Draw(image)
+    x0 = (HEAD_WIDTH_DOTS - bar_height) // 2
+    for index, module in enumerate(code):
+        if module == "1":
+            y0 = quiet + index * module_scale
+            draw.rectangle(
+                (x0, y0, x0 + bar_height - 1, y0 + module_scale - 1),
+                fill=0,
+            )
+
+    if text_lines:
+        _draw_text_lines(image, text_lines, font, symbol_height + 4)
+    return image
+
+
 def make_barcode_label(
     data: str,
     barcode_format: str = "code128",
@@ -561,58 +642,52 @@ def make_barcode_label(
     caption: str | None = None,
     font_path: str | None = None,
     font_size: int = 12,
+    auto_vertical: bool = True,
 ) -> Image.Image:
-    try:
-        barcode_class = barcode_library.get_barcode_class(barcode_format)
-    except Exception as exc:
-        raise ValueError(f"不支持的条码类型 {barcode_format}: {exc}") from exc
-
-    buffer = io.BytesIO()
-    barcode_class(data, writer=ImageWriter()).write(
-        buffer,
-        options={
-            "module_width": 1,
-            "module_height": 8,
-            "font_size": 8,
-            "text_distance": 2,
-            "quiet_zone": 1,
-            "write_text": show_text,
-        },
-    )
-    buffer.seek(0)
-    barcode_image = Image.open(buffer).convert("L")
+    code = _barcode_module_code(data, barcode_format)
     available = HEAD_WIDTH_DOTS - margin * 2
-    scale = min(1.0, available / barcode_image.width)
-    target_size = (max(1, round(barcode_image.width * scale)), max(1, round(barcode_image.height * scale)))
-    barcode_image = barcode_image.resize(target_size, Image.Resampling.LANCZOS)
+    quiet_modules = 8
+    horizontal_scale = max(0, (available - quiet_modules * 2) // len(code))
 
-    if caption:
-        caption_font = load_font(font_path, font_size)
-        caption_lines = wrap_text(caption, caption_font, available)
-        temp = Image.new("L", (10, 10), 255)
-        temp_draw = ImageDraw.Draw(temp)
-        caption_height = sum(
-            temp_draw.textbbox((0, 0), line, font=caption_font)[3] + 2
-            for line in caption_lines
+    if auto_vertical and horizontal_scale < 2:
+        return _render_vertical_barcode(
+            code,
+            data,
+            show_text=show_text,
+            caption=caption,
+            font_path=font_path,
+            font_size=font_size,
         )
-    else:
-        caption_font = None
-        caption_lines = []
-        caption_height = 0
 
-    height = margin * 2 + barcode_image.height + caption_height
-    canvas = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
-    x = margin + (available - barcode_image.width) // 2
-    canvas.paste(barcode_image, (x, margin))
-    if caption_lines:
-        draw = ImageDraw.Draw(canvas)
-        y = margin + barcode_image.height + 2
-        for line in caption_lines:
-            width = draw.textlength(line, font=caption_font)
-            text_x = (HEAD_WIDTH_DOTS - width) // 2
-            draw.text((text_x, y), line, font=caption_font, fill=0)
-            y += draw.textbbox((0, 0), line, font=caption_font)[3] + 2
-    return canvas
+    scale = max(1, horizontal_scale)
+    quiet = quiet_modules * scale
+    symbol_width = len(code) * scale + quiet * 2
+    bar_height = min(32, max(12, available // 3))
+    font = load_font(font_path, font_size)
+
+    text_lines: list[str] = []
+    if show_text and data:
+        text_lines.extend(wrap_text(str(data), font, available))
+    if caption:
+        text_lines.extend(wrap_text(caption, font, available))
+    text_height = _text_block_height(text_lines, font)
+
+    height = margin * 2 + bar_height + (2 + text_height if text_lines else 0)
+    image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
+    draw = ImageDraw.Draw(image)
+    x0 = (HEAD_WIDTH_DOTS - symbol_width) // 2
+    y0 = margin
+    for index, module in enumerate(code):
+        if module == "1":
+            x = x0 + quiet + index * scale
+            draw.rectangle(
+                (x, y0, x + scale - 1, y0 + bar_height - 1),
+                fill=0,
+            )
+
+    if text_lines:
+        _draw_text_lines(image, text_lines, font, y0 + bar_height + 2)
+    return image
 
 
 # ---------------------------------------------------------------------------
