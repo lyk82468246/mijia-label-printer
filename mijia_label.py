@@ -28,11 +28,12 @@ import json
 import struct
 import sys
 import time
+from array import array
 from itertools import zip_longest
 from pathlib import Path
 
 from Crypto.Cipher import AES
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 ROOT = Path(__file__).resolve().parent
 VENDOR = ROOT / ".vendor"
@@ -347,20 +348,261 @@ def cmd_print_finalize(more_pages: bool = False) -> bytes:
 # Bitmap conversion
 # ---------------------------------------------------------------------------
 
-def image_to_raster(image: Image.Image, threshold: int = 128, invert: bool = False) -> tuple[bytes, int]:
+_DITHER_METHODS = {
+    "auto",
+    "none",
+    "threshold",
+    "floyd-steinberg",
+    "atkinson",
+    "bayer4",
+    "bayer8",
+}
+
+_DITHER_ALIASES = {
+    "off": "none",
+    "fs": "floyd-steinberg",
+    "floyd": "floyd-steinberg",
+    "bayer": "bayer8",
+    "ordered": "bayer8",
+}
+
+_BAYER4 = (
+    (0, 8, 2, 10),
+    (12, 4, 14, 6),
+    (3, 11, 1, 9),
+    (15, 7, 13, 5),
+)
+
+# Recursive Bayer matrix; generated once and stored as integers 0..63.
+def _make_bayer8() -> tuple[tuple[int, ...], ...]:
+    matrix = ((0, 2), (3, 1))
+    for _ in range(2):  # 2x2 -> 4x4 -> 8x8
+        old = matrix
+        size = len(old) * 2
+        matrix = [[0] * size for _ in range(size)]
+        for y, row in enumerate(old):
+            for x, value in enumerate(row):
+                base = value * 4
+                matrix[y * 2][x * 2] = base
+                matrix[y * 2][x * 2 + 1] = base + 2
+                matrix[y * 2 + 1][x * 2] = base + 3
+                matrix[y * 2 + 1][x * 2 + 1] = base + 1
+    return tuple(tuple(row) for row in matrix)
+
+_BAYER8 = _make_bayer8()
+
+# sRGB is converted to linear light before resampling. This is the monochrome
+# equivalent of ClearType's gamma-aware rendering: it prevents thin dark
+# strokes from disappearing when a glyph is averaged into the background.
+def _srgb_to_linear_lut() -> list[float]:
+    return [((value / 255.0) ** 2.2) * 65535.0 for value in range(256)]
+
+def _linear_to_srgb_lut() -> list[int]:
+    return [round(((value / 65535.0) ** (1.0 / 2.2)) * 255.0) for value in range(65536)]
+
+_SRGB_TO_LINEAR = _srgb_to_linear_lut()
+_LINEAR_TO_SRGB = _linear_to_srgb_lut()
+
+
+def normalize_dither(value: object = "auto") -> str:
+    """Return a supported dithering algorithm name."""
+    if value is None:
+        return "auto"
+    key = str(value).strip().lower().replace("_", "-").replace(" ", "-")
+    key = _DITHER_ALIASES.get(key, key)
+    if key not in _DITHER_METHODS:
+        raise ValueError(f"不支持的仿色算法: {value}")
+    return key
+
+
+def _gamma_aware_resize(gray: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Resize grayscale data in linear light, then return sRGB tones."""
+    if gray.width == size[0] and gray.height == size[1]:
+        return gray.copy()
+    try:
+        raw = gray.tobytes()
+        floats = array("f", map(_SRGB_TO_LINEAR.__getitem__, raw))
+        linear = Image.frombuffer("F", gray.size, floats.tobytes(), "raw", "F", 0, 1)
+        resized = linear.resize(size, Image.Resampling.LANCZOS)
+        linear_values = array("f", resized.tobytes())
+        values = [
+            _LINEAR_TO_SRGB[max(0, min(65535, int(value)))]
+            for value in linear_values
+        ]
+        result = Image.new("L", size)
+        result.putdata(values)
+        return result
+    except (MemoryError, OSError):
+        # Very large images can fall back to Pillow's high-quality resample.
+        return gray.resize(size, Image.Resampling.LANCZOS)
+
+
+def _midtone_ratio(gray: Image.Image) -> float:
+    histogram = gray.histogram()
+    total = sum(histogram)
+    if total <= 0:
+        return 0.0
+    return sum(histogram[24:232]) / total
+
+
+def _is_binary_gray(gray: Image.Image) -> bool:
+    histogram = gray.histogram()
+    return sum(value for index, value in enumerate(histogram) if index not in (0, 255)) == 0
+
+
+def _auto_dither_method(gray: Image.Image) -> str:
+    """Pick a conservative algorithm based on label content.
+
+    Already binary symbols (QR/barcode) keep hard edges. Text and line art
+    contain only edge midtones, so Atkinson gives gentle anti-aliased dots
+    without the long error trails of Floyd-Steinberg. Photos get the same
+    high-contrast algorithm, which also behaves well on thermal media.
+    """
+    if _is_binary_gray(gray):
+        return "none"
+    return "atkinson"
+
+
+def _threshold_mask(
+    values: list[int] | list[float],
+    width: int,
+    height: int,
+    threshold: int,
+) -> bytearray:
+    return bytearray(
+        1 if value < threshold else 0
+        for value in values
+    )
+
+
+def _error_diffusion_mask(
+    values: list[int] | list[float],
+    width: int,
+    height: int,
+    threshold: int,
+    kernel: tuple[tuple[int, int, float], ...],
+) -> bytearray:
+    """Serpentine error diffusion; 1 means a black printer dot."""
+    work = [float(value) for value in values]
+    mask = bytearray(width * height)
+    for y in range(height):
+        left_to_right = y % 2 == 0
+        x_values = range(width) if left_to_right else range(width - 1, -1, -1)
+        direction = 1 if left_to_right else -1
+        row = y * width
+        for x in x_values:
+            index = row + x
+            old = work[index]
+            new = 0.0 if old < threshold else 255.0
+            mask[index] = 1 if new == 0.0 else 0
+            error = old - new
+            if -0.01 <= error <= 0.01:
+                continue
+            for dx, dy, weight in kernel:
+                nx = x + dx * direction
+                ny = y + dy
+                if 0 <= nx < width and 0 <= ny < height:
+                    work[ny * width + nx] += error * weight
+    return mask
+
+
+_FLOYD_STEINBERG_KERNEL = (
+    (1, 0, 7 / 16),
+    (-1, 1, 3 / 16),
+    (0, 1, 5 / 16),
+    (1, 1, 1 / 16),
+)
+
+# Atkinson spreads only 6/8 of the error, preserving contrast and avoiding mud.
+_ATKINSON_KERNEL = (
+    (1, 0, 1 / 8),
+    (2, 0, 1 / 8),
+    (-1, 1, 1 / 8),
+    (0, 1, 1 / 8),
+    (1, 1, 1 / 8),
+    (0, 2, 1 / 8),
+)
+
+
+def _ordered_mask(
+    values: list[int] | list[float],
+    width: int,
+    height: int,
+    threshold: int,
+    matrix: tuple[tuple[int, ...], ...],
+) -> bytearray:
+    size = len(matrix)
+    maximum = size * size
+    mask = bytearray(width * height)
+    for y in range(height):
+        row = y * width
+        matrix_row = matrix[y % size]
+        for x in range(width):
+            tone = (matrix_row[x % size] + 0.5) / maximum - 0.5
+            cutoff = min(255.0, max(0.0, threshold + tone * 255.0))
+            mask[row + x] = 1 if values[row + x] < cutoff else 0
+    return mask
+
+
+def _dither_gray_to_mask(
+    gray: Image.Image,
+    threshold: int,
+    dither: str,
+) -> bytearray:
+    width, height = gray.size
+    values = list(gray.tobytes())
+    if dither == "none" or dither == "threshold":
+        return _threshold_mask(values, width, height, threshold)
+    if dither == "floyd-steinberg":
+        return _error_diffusion_mask(values, width, height, threshold, _FLOYD_STEINBERG_KERNEL)
+    if dither == "atkinson":
+        return _error_diffusion_mask(values, width, height, threshold, _ATKINSON_KERNEL)
+    if dither == "bayer4":
+        return _ordered_mask(values, width, height, threshold, _BAYER4)
+    if dither == "bayer8":
+        return _ordered_mask(values, width, height, threshold, _BAYER8)
+    raise ValueError(f"不支持的仿色算法: {dither}")
+
+
+def _mask_to_raster(mask: bytearray, height: int) -> bytes:
+    raster = bytearray(BYTES_PER_ROW * height)
+    for y in range(height):
+        row = y * HEAD_WIDTH_DOTS
+        raster_row = y * BYTES_PER_ROW
+        for x in range(HEAD_WIDTH_DOTS):
+            if mask[row + x]:
+                raster[raster_row + (x >> 3)] |= 0x80 >> (x & 7)
+    return bytes(raster)
+
+
+def image_to_raster(
+    image: Image.Image,
+    threshold: int = 128,
+    invert: bool = False,
+    dither: str = "auto",
+) -> tuple[bytes, int]:
+    """Convert an image to the printer's packed 1bpp row-major raster.
+
+    Downsampling is gamma-aware. `dither="auto"` keeps QR/barcode edges hard,
+    uses Atkinson error diffusion for continuous tones, and combines 4x text
+    supersampling with gamma correction for smoother glyph edges.
+    """
     gray = image.convert("L")
     if invert:
         gray = ImageOps.invert(gray)
     height = max(1, round(gray.height * HEAD_WIDTH_DOTS / gray.width))
-    resized = gray.resize((HEAD_WIDTH_DOTS, height), Image.Resampling.LANCZOS)
-    black_white = resized.point(lambda value: 0 if value < threshold else 255, mode="L").convert("1")
-    pixels = black_white.load()
-    raster = bytearray(BYTES_PER_ROW * height)
-    for y in range(height):
-        for x in range(HEAD_WIDTH_DOTS):
-            if pixels[x, y] == 0:
-                raster[y * BYTES_PER_ROW + (x >> 3)] |= 0x80 >> (x & 7)
-    return bytes(raster), height
+    resized = _gamma_aware_resize(gray, (HEAD_WIDTH_DOTS, height))
+
+    # Mild edge restoration compensates for LANCZOS softness and thermal dot
+    # gain. It is skipped for already binary QR/barcode input.
+    if not _is_binary_gray(resized):
+        resized = resized.filter(ImageFilter.UnsharpMask(radius=0.7, percent=55, threshold=2))
+
+    method = normalize_dither(dither)
+    if method == "auto":
+        method = _auto_dither_method(resized)
+    mask = _dither_gray_to_mask(resized, threshold, method)
+    return _mask_to_raster(mask, height), height
 
 
 def raster_to_image(raster: bytes, height: int) -> Image.Image:
@@ -380,7 +622,11 @@ def raster_to_image(raster: bytes, height: int) -> Image.Image:
     return image
 
 
-def rotate_print_image(image: Image.Image, rotation: int | str = 0) -> Image.Image:
+def rotate_print_image(
+    image: Image.Image,
+    rotation: int | str = 0,
+    dither: str = "auto",
+) -> Image.Image:
     """Rotate label content and normalize the result to the 96-dot head width.
 
     Angles are counterclockwise. When a rotated label is wider than the fixed
@@ -404,7 +650,12 @@ def rotate_print_image(image: Image.Image, rotation: int | str = 0) -> Image.Ima
         rotated = image.transpose(Image.Transpose.ROTATE_270)
 
     if rotated.width != HEAD_WIDTH_DOTS:
-        raster, height = image_to_raster(rotated, threshold=128, invert=False)
+        raster, height = image_to_raster(
+            rotated,
+            threshold=128,
+            invert=False,
+            dither=dither,
+        )
         rotated = raster_to_image(raster, height)
     return rotated
 
@@ -480,18 +731,21 @@ def make_text_label(
     line_spacing: float = 1.15,
     layout_rotation: int = 0,
 ) -> Image.Image:
-    """Render a text label.
+    """Render anti-aliased text with 4x supersampling.
 
     For 90/270-degree output, `layout_rotation` tells this function to lay the
     text out on a sideways canvas first. This prevents wrapping at the 96-dot
     head width; `rotate_print_image` performs the final rotation afterward.
     """
+    scale = 4
     font = load_font(font_path, font_size)
+    scaled_font = load_font(font_path, max(8, font_size * scale))
     try:
         ascent, descent = font.getmetrics()
         line_height = max(1, int((ascent + descent) * line_spacing))
     except Exception:
         line_height = max(1, int(font_size * 1.25 * line_spacing))
+    scaled_line_height = max(1, line_height * scale)
 
     normalized_rotation = int(layout_rotation) % 360
     raw_lines = text.replace("\r\n", "\n").split("\n") or [""]
@@ -502,38 +756,37 @@ def make_text_label(
         # does not rescale it; otherwise font size would be normalized away.
         content_length = max((font.getlength(line) for line in raw_lines), default=0)
         width = max(12, int(content_length) + margin * 2)
-        image = Image.new("L", (width, HEAD_WIDTH_DOTS), 255)
-        draw = ImageDraw.Draw(image)
-        text_height = line_height * len(raw_lines)
-        y = max(0, (HEAD_WIDTH_DOTS - text_height) // 2)
-        for index, line in enumerate(raw_lines):
-            line_width = draw.textlength(line, font=font)
+        canvas = Image.new("L", (width * scale, HEAD_WIDTH_DOTS * scale), 255)
+        draw = ImageDraw.Draw(canvas)
+        y = max(0, (canvas.height - scaled_line_height * len(raw_lines)) // 2)
+        for line in raw_lines:
+            line_width = draw.textlength(line, font=scaled_font)
             if align == "left":
-                x = margin
+                x = margin * scale
             elif align == "right":
-                x = width - margin - line_width
+                x = canvas.width - margin * scale - line_width
             else:
-                x = (width - line_width) // 2
-            draw.text((x, y), line, font=font, fill=0)
-            y += line_height
-        return image
+                x = (canvas.width - line_width) // 2
+            draw.text((x, y), line, font=scaled_font, fill=0)
+            y += scaled_line_height
+        return canvas.resize((width, HEAD_WIDTH_DOTS), Image.Resampling.LANCZOS)
 
     content_width = HEAD_WIDTH_DOTS - margin * 2
     wrapped = wrap_text(text, font, content_width)
     height = max(12, margin * 2 + line_height * len(wrapped))
-    image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
-    draw = ImageDraw.Draw(image)
+    canvas = Image.new("L", (HEAD_WIDTH_DOTS * scale, height * scale), 255)
+    draw = ImageDraw.Draw(canvas)
     for index, line in enumerate(wrapped):
-        line_width = draw.textlength(line, font=font)
+        line_width = draw.textlength(line, font=scaled_font)
         if align == "left":
-            x = margin
+            x = margin * scale
         elif align == "right":
-            x = HEAD_WIDTH_DOTS - margin - line_width
+            x = canvas.width - margin * scale - line_width
         else:
-            x = (HEAD_WIDTH_DOTS - line_width) // 2
-        y = margin + index * line_height
-        draw.text((x, y), line, font=font, fill=0)
-    return image
+            x = (canvas.width - line_width) // 2
+        y = margin * scale + index * scaled_line_height
+        draw.text((x, y), line, font=scaled_font, fill=0)
+    return canvas.resize((HEAD_WIDTH_DOTS, height), Image.Resampling.LANCZOS)
 
 
 def make_qr_label(
@@ -857,8 +1110,12 @@ def make_barcode_label(
 # Print job
 # ---------------------------------------------------------------------------
 
-def build_print_frames(image: Image.Image, include_handshake: bool = True) -> list[tuple[str, bytes]]:
-    raster, height = image_to_raster(image)
+def build_print_frames(
+    image: Image.Image,
+    include_handshake: bool = True,
+    dither: str = "auto",
+) -> list[tuple[str, bytes]]:
+    raster, height = image_to_raster(image, dither=dither)
     frames: list[tuple[str, bytes]] = []
     if include_handshake:
         frames.append(("set_connected", cmd_set_connected()))
@@ -1081,7 +1338,7 @@ def _composite_from_spec(spec: dict, args) -> Image.Image:
         show_barcode_text=not spec.get("no_barcode_text", args.no_barcode_text),
         spacing=int(spec.get("spacing", args.spacing)),
     )
-    return rotate_print_image(image, spec.get("rotation", args.rotation))
+    return rotate_print_image(image, spec.get("rotation", args.rotation), dither=args.dither)
 
 
 def run_batch(args) -> int:
@@ -1118,7 +1375,7 @@ def run_batch(args) -> int:
     total_bytes = 0
     frame_counts = []
     for image in images:
-        frames = build_print_frames(image, include_handshake=not args.no_handshake)
+        frames = build_print_frames(image, include_handshake=not args.no_handshake, dither=args.dither)
         frame_counts.append(frames)
         total_frames += len(frames)
         total_bytes += sum(len(frame) for _, frame in frames)
@@ -1168,6 +1425,12 @@ def add_common_options(parser: argparse.ArgumentParser, suppressed: bool = False
     parser.add_argument("--margin", type=int, default=optional_default(4), help="标签左右/上下留白，单位：点")
     parser.add_argument("--invert", action="store_true", default=argparse.SUPPRESS if suppressed else False, help="反转黑白，适合白字黑底图片")
     parser.add_argument("--threshold", type=int, default=optional_default(128), help="黑白阈值 0-255")
+    parser.add_argument(
+        "--dither",
+        type=normalize_dither,
+        default=optional_default("auto"),
+        help="仿色算法：auto/none/floyd-steinberg/atkinson/bayer4/bayer8",
+    )
     parser.add_argument("--preview-only", action="store_true", default=argparse.SUPPRESS if suppressed else False, help="只生成预览图，不打印")
     parser.add_argument("--preview", default=default, help="预览图输出路径")
     parser.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS if suppressed else False, help="生成打印帧但不写入 USB")
@@ -1265,7 +1528,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.invert:
             image = ImageOps.invert(image)
         # Recreate through raster conversion path so threshold is applied.
-        raster, height = image_to_raster(image, threshold=args.threshold, invert=False)
+        raster, height = image_to_raster(image, threshold=args.threshold, invert=False, dither=args.dither)
         canvas = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
         pixels = canvas.load()
         for y in range(height):
@@ -1326,7 +1589,7 @@ def main(argv: list[str] | None = None) -> int:
     image.save(preview_path)
     print(f"预览: {preview_path}  尺寸: {image.width}x{image.height}")
 
-    frames = build_print_frames(image, include_handshake=not args.no_handshake)
+    frames = build_print_frames(image, include_handshake=not args.no_handshake, dither=args.dither)
     total_bytes = sum(len(frame) for _, frame in frames)
     print(f"打印帧: {len(frames)} 个，总计 {total_bytes} 字节")
 

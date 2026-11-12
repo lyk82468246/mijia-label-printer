@@ -178,6 +178,12 @@ A phone on the same Wi-Fi / LAN can scan that QR code and use the same designer.
 
 The web UI supports text, QR codes, barcodes, images, composite labels, batch preview, batch dry-run, and batch printing.
 
+### Monochrome quality
+
+Text is rendered with 4x supersampling and gamma-aware downsampling. Uploaded images are resized in linear light, lightly edge-restored, then converted to 1-bit dots.
+
+`--dither auto` keeps already-binary QR/barcode edges hard and uses Atkinson error diffusion for text, line art, and photos. You can also choose `floyd-steinberg`, ordered `bayer4`/`bayer8`, or `none` for a hard threshold. True RGB ClearType subpixel rendering is not possible on a monochrome thermal head; this uses the applicable parts—gamma-aware anti-aliasing, edge preservation, and perceptual dot placement.
+
 ## Useful options
 
 | Option | Description |
@@ -186,6 +192,7 @@ The web UI supports text, QR codes, barcodes, images, composite labels, batch pr
 | `--dry-run` | Build USB frames without opening the device |
 | `--margin N` | Label margin in dots |
 | `--threshold N` | Black/white threshold, default `128` |
+| `--dither NAME` | `auto`, `none`, `floyd-steinberg`, `atkinson`, `bayer4`, or `bayer8` |
 | `--invert` | Invert black and white |
 | `--font PATH` | TrueType/OpenType font file |
 | `--font-size N` | Font size in dots |

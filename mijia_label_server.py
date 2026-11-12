@@ -85,6 +85,7 @@ def prepare_uploaded_image(payload: dict) -> Image.Image:
         image,
         threshold=int(payload.get("threshold", 128)),
         invert=False,
+        dither=printer.normalize_dither(payload.get("dither", "auto")),
     )
     return raster_to_image(raster, height)
 
@@ -166,8 +167,17 @@ def render_label_image(payload: dict) -> Image.Image:
 
 
 def image_from_payload(payload: dict) -> Image.Image:
+    """Render, rotate, and rasterize a payload so preview matches printing."""
     image = render_label_image(payload)
-    return printer.rotate_print_image(image, payload.get("rotation", 0))
+    dither = printer.normalize_dither(payload.get("dither", "auto"))
+    image = printer.rotate_print_image(image, payload.get("rotation", 0), dither=dither)
+    raster, height = printer.image_to_raster(
+        image,
+        threshold=int(payload.get("threshold", 128)),
+        invert=False,
+        dither=dither,
+    )
+    return raster_to_image(raster, height)
 
 
 def table_rows_from_payload(payload: dict) -> list[dict]:
@@ -196,6 +206,7 @@ def batch_common_options(payload: dict) -> dict:
         "align": payload.get("align", "center"),
         "rotation": payload.get("rotation", 0),
         "line_spacing": payload.get("line_spacing", 1.15),
+        "dither": payload.get("dither", "auto"),
         "qr_error": payload.get("qr_error", "m"),
         "barcode_format": payload.get("barcode_format", "code128"),
         "no_barcode_text": payload.get("no_barcode_text", False),
@@ -241,7 +252,11 @@ def print_batch_payload(payload: dict) -> dict:
         for offset, row in enumerate(selected):
             index = int(payload.get("start", 1)) + offset
             image = image_from_payload(batch_label_payload(row, template, common))
-            frames = printer.build_print_frames(image, include_handshake=include_handshake)
+            frames = printer.build_print_frames(
+                image,
+                include_handshake=include_handshake,
+                dither=printer.normalize_dither(payload.get("dither", "auto")),
+            )
             bytes_sent = 0
             for name, frame in frames:
                 written = usb.write(frame)
@@ -360,7 +375,11 @@ class LabelRequestHandler(BaseHTTPRequestHandler):
                 return
             if path in ("/api/print", "/api/dry-run"):
                 image = image_from_payload(payload)
-                frames = printer.build_print_frames(image, include_handshake=not payload.get("no_handshake", False))
+                frames = printer.build_print_frames(
+                    image,
+                    include_handshake=not payload.get("no_handshake", False),
+                    dither=printer.normalize_dither(payload.get("dither", "auto")),
+                )
                 total_bytes = sum(len(frame) for _, frame in frames)
                 device_path = printer.resolve_device_path(payload.get("device_path"))
                 if path == "/api/dry-run":
@@ -420,7 +439,11 @@ class LabelRequestHandler(BaseHTTPRequestHandler):
                 for offset, row in enumerate(selected):
                     index = int(payload.get("start", 1)) + offset
                     image = image_from_payload(batch_label_payload(row, template, common))
-                    frames = printer.build_print_frames(image, include_handshake=not payload.get("no_handshake", False))
+                    frames = printer.build_print_frames(
+                        image,
+                        include_handshake=not payload.get("no_handshake", False),
+                        dither=printer.normalize_dither(payload.get("dither", "auto")),
+                    )
                     bytes_count = sum(len(frame) for _, frame in frames)
                     total_frames += len(frames)
                     total_bytes += bytes_count
