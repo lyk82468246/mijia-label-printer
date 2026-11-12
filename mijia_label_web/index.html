@@ -3,166 +3,195 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mijia 标签设计器</title>
+  <title>Mijia Label Studio</title>
+  <meta name="description" content="Mijia USB 标签设计器：预览并打印文字、二维码、条形码和组合标签。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%232563eb'/><text x='32' y='41' font-family='Segoe UI,sans-serif' font-size='24' font-weight='700' fill='white' text-anchor='middle'>MI</text></svg>">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <h1>Mijia 标签设计器</h1>
-      <p class="subtitle">USB 后端打印 · 本地网页 · 支持手机扫码使用</p>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark">MI</span>
+      <div class="brand-text">
+        <h1>Mijia Label Studio</h1>
+        <p>USB 标签设计与打印</p>
+      </div>
     </div>
-    <div class="top-status">
-      <span id="printerStatus" class="badge checking">正在检查打印机…</span>
-      <button id="checkButton" class="ghost">刷新状态</button>
+    <div class="header-actions">
+      <span id="printerStatus" class="status-badge checking">正在检查打印机…</span>
+      <button id="checkButton" class="button ghost" type="button">刷新状态</button>
     </div>
   </header>
 
   <main class="layout">
-    <section class="panel">
-      <h2>1. 扫码连接 / 打开页面</h2>
-      <p class="muted">
-        本页由你的电脑本机服务提供。手机需要和电脑连在同一个 Wi-Fi / 局域网中，扫描二维码即可打开同一个标签设计页面。
-      </p>
-      <div class="qr-row">
-        <img id="siteQr" alt="本页二维码">
-        <div class="qr-info">
-          <strong>手机扫码打开</strong>
-          <a id="siteUrl" href="/" target="_blank" rel="noreferrer">正在获取地址…</a>
-          <span id="devicePaths" class="muted"></span>
-        </div>
+    <section class="panel designer-panel" aria-labelledby="designer-title">
+      <div class="panel-heading">
+        <h2 id="designer-title">设计标签</h2>
+        <p>选择标签类型，填写内容，确认预览后再打印。</p>
       </div>
-      <p class="note">
-        如果手机无法打开，请确认两台设备在同一网络，且 Windows 防火墙允许 Python 访问局域网端口。
-      </p>
-    </section>
 
-    <section class="panel">
-      <h2>2. 设计标签</h2>
-
-      <div class="tabs" id="kindTabs">
-        <button class="tab active" data-kind="text">文字</button>
-        <button class="tab" data-kind="qr">二维码</button>
-        <button class="tab" data-kind="barcode">条形码</button>
-        <button class="tab" data-kind="image">图片</button>
-        <button class="tab" data-kind="composite">组合</button>
+      <div class="segmented-tabs" id="kindTabs" role="tablist">
+        <button class="tab active" data-kind="text" type="button" role="tab">文字</button>
+        <button class="tab" data-kind="qr" type="button" role="tab">二维码</button>
+        <button class="tab" data-kind="barcode" type="button" role="tab">条形码</button>
+        <button class="tab" data-kind="image" type="button" role="tab">图片</button>
+        <button class="tab" data-kind="composite" type="button" role="tab">组合</button>
       </div>
 
       <div id="field-text" class="field-group">
         <label for="textInput">文字内容</label>
-        <textarea id="textInput" rows="4">Mijia 标签
+        <textarea id="textInput" rows="4" placeholder="输入要打印的文字，每行一条">Mijia 标签
 USB 打印测试</textarea>
+        <p class="hint">适合名称、编号、备注或多行说明。</p>
       </div>
 
       <div id="field-qr" class="field-group hidden">
         <label for="qrInput">二维码内容</label>
         <input id="qrInput" type="text" value="https://example.com/device/A-01">
+        <p class="hint">可输入网址、编号或纯文本。内容越短，二维码越容易扫描。</p>
       </div>
 
       <div id="field-barcode" class="field-group hidden">
         <label for="barcodeInput">条形码内容</label>
         <input id="barcodeInput" type="text" value="1234567890">
+        <p class="hint">请使用所选条码格式支持的字符和长度。</p>
       </div>
 
       <div id="field-image" class="field-group hidden">
         <label for="imageInput">上传图片</label>
         <input id="imageInput" type="file" accept="image/*">
-        <p class="muted">图片会自动缩放到 96 点宽，并按阈值转成黑白。</p>
+        <p class="hint">图片会自动缩放到 96 点宽，并转为黑白位图。</p>
       </div>
 
       <div id="field-composite" class="field-group hidden">
-        <label for="compositeText">多行文字</label>
-        <textarea id="compositeText" rows="4">设备A-01
+        <div class="composite-fields">
+          <div>
+            <label for="compositeText">文字内容</label>
+            <textarea id="compositeText" rows="3">设备A-01
 张三 / 实验室</textarea>
-        <label for="compositeQr" style="margin-top:10px">二维码内容</label>
-        <input id="compositeQr" type="text" value="https://example.com/device/A-01">
-        <label for="compositeBarcode" style="margin-top:10px">条形码内容</label>
-        <input id="compositeBarcode" type="text" value="A0001">
-        <p class="muted">组合标签会从上到下依次排列：文字、二维码、条形码；空白项会自动跳过。</p>
+          </div>
+          <div>
+            <label for="compositeQr">二维码内容</label>
+            <input id="compositeQr" type="text" value="https://example.com/device/A-01">
+          </div>
+          <div>
+            <label for="compositeBarcode">条形码内容</label>
+            <input id="compositeBarcode" type="text" value="A0001">
+          </div>
+        </div>
+        <p class="hint">按“文字 → 二维码 → 条形码”的顺序纵向排列，空白项自动跳过。</p>
       </div>
 
-      <div class="grid">
-        <label>边距 / 点
-          <input id="margin" type="number" min="0" max="40" value="4">
-        </label>
-        <label>字号 / 点
-          <input id="fontSize" type="number" min="6" max="72" value="18">
-        </label>
-        <label>对齐
-          <select id="align">
-            <option value="center">居中</option>
-            <option value="left">左对齐</option>
-            <option value="right">右对齐</option>
-          </select>
-        </label>
-        <label>行距
-          <input id="lineSpacing" type="number" min="0.8" max="2" step="0.05" value="1.15">
-        </label>
-        <label>黑白阈值
-          <input id="threshold" type="number" min="0" max="255" value="128">
-        </label>
-        <label>二维码纠错
-          <select id="qrError">
-            <option value="l">L - 低</option>
-            <option value="m" selected>M - 中</option>
-            <option value="q">Q - 较高</option>
-            <option value="s">S - 高</option>
-          </select>
-        </label>
-        <label>条码类型
-          <select id="barcodeFormat">
-            <option value="code128">Code128</option>
-            <option value="code39">Code39</option>
-            <option value="ean13">EAN-13</option>
-            <option value="ean8">EAN-8</option>
-            <option value="upca">UPC-A</option>
-          </select>
-        </label>
-        <label class="checkbox">
-          <input id="invert" type="checkbox">
-          反转黑白
-        </label>
-        <label class="checkbox">
-          <input id="noBarcodeText" type="checkbox">
-          隐藏条码数字
-        </label>
+      <div class="field-group">
+        <label for="caption">下方附加文字</label>
+        <input id="caption" type="text" placeholder="例如：校准标签 / 2026-Q4">
       </div>
 
-      <label for="caption">二维码 / 条码下方文字</label>
-      <input id="caption" type="text" placeholder="例如：设备A-01 / 张三">
+      <details class="advanced-settings">
+        <summary>高级设置</summary>
+        <div class="option-grid">
+          <label>边距 / dots
+            <input id="margin" type="number" min="0" max="40" value="4">
+          </label>
+          <label>字号 / dots
+            <input id="fontSize" type="number" min="6" max="72" value="18">
+          </label>
+          <label>对齐
+            <select id="align">
+              <option value="center">居中</option>
+              <option value="left">左对齐</option>
+              <option value="right">右对齐</option>
+            </select>
+          </label>
+          <label>行距
+            <input id="lineSpacing" type="number" min="0.8" max="2" step="0.05" value="1.15">
+          </label>
+          <label>黑白阈值
+            <input id="threshold" type="number" min="0" max="255" value="128">
+          </label>
+          <label>二维码纠错
+            <select id="qrError">
+              <option value="l">L · 低</option>
+              <option value="m" selected>M · 中</option>
+              <option value="q">Q · 较高</option>
+              <option value="s">S · 高</option>
+            </select>
+          </label>
+          <label>条码类型
+            <select id="barcodeFormat">
+              <option value="code128">Code128</option>
+              <option value="code39">Code39</option>
+              <option value="ean13">EAN-13</option>
+              <option value="ean8">EAN-8</option>
+              <option value="upca">UPC-A</option>
+            </select>
+          </label>
+          <div class="toggle-group">
+            <label class="check-option">
+              <input id="invert" type="checkbox">
+              <span>反转黑白</span>
+            </label>
+            <label class="check-option">
+              <input id="noBarcodeText" type="checkbox">
+              <span>隐藏条码数字</span>
+            </label>
+          </div>
+        </div>
+      </details>
 
-      <div class="actions">
-        <button id="previewButton" class="ghost">刷新预览</button>
-        <button id="dryRunButton" class="ghost">测试打印帧</button>
-        <button id="printButton" class="primary">打印标签</button>
+      <div class="action-bar">
+        <button id="previewButton" class="button secondary" type="button">刷新预览</button>
+        <button id="dryRunButton" class="button ghost" type="button">测试帧</button>
+        <button id="printButton" class="button primary" type="button">打印标签</button>
       </div>
-
-      <div id="message" class="message"></div>
+      <div id="message" class="status-message" role="status" aria-live="polite"></div>
     </section>
 
-    <section class="panel preview-panel">
-      <h2>3. 标签预览</h2>
-      <div class="preview-wrap">
-        <img id="previewImage" alt="标签预览">
-      </div>
-      <div id="previewMeta" class="muted">输入内容后会自动生成 96 点宽黑白预览。</div>
-    </section>
+    <aside class="side-column">
+      <section class="panel connection-panel" aria-labelledby="connection-title">
+        <div class="panel-heading">
+          <h2 id="connection-title">连接</h2>
+          <p>电脑通过 USB 打印。手机可扫描二维码打开同一页面。</p>
+        </div>
+        <div class="connection-body">
+          <img id="siteQr" alt="本页局域网地址二维码">
+          <div class="connection-meta">
+            <span class="meta-label">页面地址</span>
+            <a id="siteUrl" href="/" target="_blank" rel="noreferrer">正在获取…</a>
+            <span class="meta-label">USB 设备</span>
+            <span id="devicePaths" class="device-path">检查中…</span>
+          </div>
+        </div>
+      </section>
 
-    <section class="panel batch-panel">
-      <h2>4. 批量打印 CSV / Excel</h2>
-      <p class="muted">
-        支持上传 <code>.csv</code>、<code>.tsv</code>、<code>.xlsx</code>、<code>.xlsm</code>，也可以直接粘贴表格。第一行必须是列名；模板中使用 <code>{列名}</code> 读取每行数据。
-      </p>
+      <section class="panel preview-panel" aria-labelledby="preview-title">
+        <div class="panel-heading">
+          <h2 id="preview-title">预览</h2>
+          <p>黑白效果接近真实打印。</p>
+        </div>
+        <div class="preview-stage">
+          <img id="previewImage" alt="标签预览">
+        </div>
+        <div id="previewMeta" class="preview-meta">等待生成预览</div>
+      </section>
+    </aside>
+
+    <section class="panel batch-panel" aria-labelledby="batch-title">
+      <div class="panel-heading">
+        <h2 id="batch-title">批量打印</h2>
+        <p>从 CSV、TSV 或 Excel 读取多行数据，每行生成一张标签。</p>
+      </div>
 
       <div class="batch-grid">
-        <div>
-          <label for="batchFile">上传表格文件</label>
+        <div class="batch-column">
+          <label for="batchFile">上传表格</label>
           <input id="batchFile" type="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm">
-          <label for="batchText" style="margin-top:10px">或粘贴 CSV / TSV</label>
+          <label for="batchText">或粘贴 CSV / TSV</label>
           <textarea id="batchText" rows="6" placeholder="名称,负责人,链接,编号
 设备A-01,张三,https://example.com/a01,A0001"></textarea>
         </div>
-        <div>
+
+        <div class="batch-column">
           <label for="batchTemplate">标签模板 JSON</label>
           <textarea id="batchTemplate" rows="8">{
   "text": "{名称}\n负责人：{负责人}",
@@ -176,19 +205,19 @@ USB 打印测试</textarea>
             <label>数量限制
               <input id="batchLimit" type="number" min="1" placeholder="全部">
             </label>
-            <label>标签间隔 / 秒
+            <label>间隔 / 秒
               <input id="batchDelay" type="number" min="0" step="0.1" value="1">
             </label>
           </div>
         </div>
       </div>
 
-      <div class="actions">
-        <button id="batchPreviewButton" class="ghost">预览第一张</button>
-        <button id="batchDryRunButton" class="ghost">测试全部帧</button>
-        <button id="batchPrintButton" class="primary">批量打印</button>
+      <div class="action-bar">
+        <button id="batchPreviewButton" class="button secondary" type="button">预览第一张</button>
+        <button id="batchDryRunButton" class="button ghost" type="button">测试全部帧</button>
+        <button id="batchPrintButton" class="button primary" type="button">批量打印</button>
       </div>
-      <div id="batchMessage" class="message"></div>
+      <div id="batchMessage" class="status-message" role="status" aria-live="polite"></div>
     </section>
   </main>
 

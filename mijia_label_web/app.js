@@ -185,17 +185,17 @@
 
   async function refreshStatus() {
     elements.status.textContent = "正在检查打印机…";
-    elements.status.className = "badge checking";
+    elements.status.className = "status-badge checking";
     try {
       const response = await fetch("/api/status");
       const data = await response.json();
       if (!data.ok) throw new Error("状态接口返回失败");
       if (data.device_found) {
         elements.status.textContent = "打印机已连接";
-        elements.status.className = "badge ok";
+        elements.status.className = "status-badge ok";
       } else {
         elements.status.textContent = "未找到 Mijia USB 打印机";
-        elements.status.className = "badge error";
+        elements.status.className = "status-badge error";
       }
       elements.siteUrl.textContent = data.url;
       elements.siteUrl.href = data.url;
@@ -205,7 +205,7 @@
       elements.siteQr.src = `/api/site-qr?url=${encodeURIComponent(data.url)}&t=${Date.now()}`;
     } catch (error) {
       elements.status.textContent = "状态检查失败";
-      elements.status.className = "badge error";
+      elements.status.className = "status-badge error";
       setMessage(`状态检查失败：${error.message}`, "error");
     }
   }
