@@ -796,6 +796,7 @@ def make_qr_label(
     caption: str | None = None,
     font_path: str | None = None,
     font_size: int = 12,
+    align: str = "center",
 ) -> Image.Image:
     qr = segno.make(data, error=error_level.upper())
     try:
@@ -815,6 +816,16 @@ def make_qr_label(
     png.seek(0)
     qr_image = Image.open(png).convert("L")
 
+    # QR modules scale in whole dots. The unused width must be centered;
+    # otherwise the right side can have a much larger white gap than the left.
+    if align == "left":
+        qr_x = margin
+    elif align == "right":
+        qr_x = HEAD_WIDTH_DOTS - margin - qr_size
+    else:
+        qr_x = (HEAD_WIDTH_DOTS - qr_size) // 2
+    qr_x = max(0, min(qr_x, HEAD_WIDTH_DOTS - qr_size))
+
     if caption:
         caption_font = load_font(font_path, font_size)
         temp = Image.new("L", (10, 10), 255)
@@ -826,17 +837,22 @@ def make_qr_label(
         )
         height = margin * 2 + qr_size + caption_height + 2
         canvas = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
-        canvas.paste(qr_image, (margin, margin))
+        canvas.paste(qr_image, (qr_x, margin))
         draw = ImageDraw.Draw(canvas)
         y = margin + qr_size + 2
         for line in caption_lines:
             width = draw.textlength(line, font=caption_font)
-            x = (HEAD_WIDTH_DOTS - width) // 2
+            if align == "left":
+                x = margin
+            elif align == "right":
+                x = HEAD_WIDTH_DOTS - margin - width
+            else:
+                x = (HEAD_WIDTH_DOTS - width) // 2
             draw.text((x, y), line, font=caption_font, fill=0)
             y += draw.textbbox((0, 0), line, font=caption_font)[3] + 2
     else:
         canvas = Image.new("L", (HEAD_WIDTH_DOTS, qr_size + margin * 2), 255)
-        canvas.paste(qr_image, (margin, margin))
+        canvas.paste(qr_image, (qr_x, margin))
     return canvas
 
 
@@ -1190,6 +1206,7 @@ def make_composite_label(
             caption=None,
             font_path=font_path,
             font_size=max(8, font_size // 2),
+            align=align,
         ))
 
     if barcode and str(barcode).strip():
@@ -1545,6 +1562,7 @@ def main(argv: list[str] | None = None) -> int:
             caption=args.caption,
             font_path=args.font,
             font_size=max(8, args.font_size // 2),
+            align=args.align,
         )
     elif args.command == "barcode":
         image = make_barcode_label(

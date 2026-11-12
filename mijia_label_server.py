@@ -121,6 +121,7 @@ def render_label_image(payload: dict) -> Image.Image:
             caption=caption,
             font_path=font_path,
             font_size=max(8, font_size // 2),
+            align=align,
         )
     if kind == "barcode":
         default_text_size = max(8, font_size // 2)
