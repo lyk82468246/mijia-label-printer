@@ -685,20 +685,23 @@ def _render_vertical_barcode(
     data_font = load_font(font_path, data_font_size or font_size)
     caption_font = load_font(font_path, caption_font_size or font_size)
     quiet = quiet_modules * module_scale
-    symbol_height = len(code) * module_scale + quiet * 2
-    max_text_width = HEAD_WIDTH_DOTS - 8
+    module_length = len(code) * module_scale
+    symbol_height = module_length + quiet * 2
 
+    # Vertical barcode text runs along the label length after rotation, so it
+    # must not be wrapped at the 96-dot head width. Let a single line extend
+    # for as long as needed; only the number of parallel text strips is limited
+    # by the head width.
     text_rows = _barcode_text_rows(
         data,
         caption,
         show_text,
         data_font,
         caption_font,
-        max_text_width,
+        1_000_000,
         same_line=same_line,
     )
 
-    height = symbol_height
     rotated_text: Image.Image | None = None
     if text_rows:
         text_width, text_height, _, _ = _text_rows_metrics(text_rows)
@@ -708,11 +711,17 @@ def _render_vertical_barcode(
         # rotate the text the same way so it remains parallel to the bars.
         rotated_text = text_canvas.transpose(Image.Transpose.ROTATE_270)
 
+    height = symbol_height
+    if rotated_text is not None:
+        height = max(height, rotated_text.height + quiet * 2)
+
     image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
     draw = ImageDraw.Draw(image)
 
     if rotated_text is None:
+        bar_height = min(bar_height, HEAD_WIDTH_DOTS - 4)
         bar_x = (HEAD_WIDTH_DOTS - bar_height) // 2
+        bar_y = quiet
     else:
         # Put the rotated text strip on the left and shift the symbol right.
         # Shrink the symbol only when the selected font sizes require it.
@@ -720,18 +729,18 @@ def _render_vertical_barcode(
         bar_x = rotated_text.width + 6
         bar_height = min(bar_height, HEAD_WIDTH_DOTS - bar_x - 2)
         bar_height = max(16, bar_height)
+        bar_y = max(quiet, (height - module_length) // 2)
 
     for index, module in enumerate(code):
         if module == "1":
-            y0 = quiet + index * module_scale
+            y0 = bar_y + index * module_scale
             draw.rectangle(
                 (bar_x, y0, bar_x + bar_height - 1, y0 + module_scale - 1),
                 fill=0,
             )
 
     if rotated_text is not None:
-        text_y = quiet + (len(code) * module_scale - rotated_text.height) // 2
-        text_y = max(0, min(text_y, height - rotated_text.height))
+        text_y = max(0, (height - rotated_text.height) // 2)
         image.paste(rotated_text, (text_x, text_y))
     return image
 
