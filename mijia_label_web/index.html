@@ -79,8 +79,8 @@ USB 打印测试</textarea>
 
       <div id="field-image" class="field-group hidden">
         <label for="imageInput">上传图片</label>
-        <input id="imageInput" type="file" accept="image/*">
-        <p class="hint">图片会自动缩放到 96 点宽，并转为黑白位图。</p>
+        <input id="imageInput" type="file" accept="image/*,.svg">
+        <p class="hint">位图会自动缩放到 96 点宽；SVG 矢量图会先在浏览器中高清栅格化，再转为黑白位图。</p>
       </div>
 
       <div id="field-composite" class="field-group hidden">

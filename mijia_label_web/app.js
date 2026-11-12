@@ -74,6 +74,125 @@
     elements.message.className = "message";
   }
 
+  const VECTOR_RASTER_WIDTH = 768;
+  const VECTOR_RASTER_MAX_HEIGHT = 20000;
+
+  function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("文件读取失败"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("浏览器无法解析该图片"));
+      image.src = src;
+    });
+  }
+
+  function isSvgFile(file) {
+    const name = file.name || "";
+    return file.type === "image/svg+xml" || /\.svg$/i.test(name);
+  }
+
+  function parseSvgDimensions(svgText) {
+    try {
+      const document = new DOMParser().parseFromString(svgText, "image/svg+xml");
+      if (document.getElementsByTagName("parsererror").length) return null;
+      const svg = document.documentElement;
+      if (!svg) return null;
+
+      const readLength = (value) => {
+        const match = String(value || "").match(/^\s*([0-9]*\.?[0-9]+)\s*(px|pt|pc|mm|cm|in|%|em|ex)?\s*$/i);
+        if (!match) return Number.NaN;
+        let number = parseFloat(match[1]);
+        const unit = (match[2] || "").toLowerCase();
+        if (unit === "pt") number *= 96 / 72;
+        else if (unit === "pc") number *= 96 / 12;
+        else if (unit === "mm") number *= 96 / 25.4;
+        else if (unit === "cm") number *= 96 / 2.54;
+        else if (unit === "in") number *= 96;
+        else if (unit === "%" || unit === "em" || unit === "ex") return Number.NaN;
+        return number;
+      };
+
+      let width = readLength(svg.getAttribute("width"));
+      let height = readLength(svg.getAttribute("height"));
+      const viewBox = String(svg.getAttribute("viewBox") || "")
+        .trim()
+        .split(/[\s,]+/)
+        .map((value) => parseFloat(value));
+      const hasViewBox = viewBox.length === 4 && viewBox.every((value) => Number.isFinite(value));
+
+      if ((!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) && hasViewBox) {
+        const viewWidth = viewBox[2];
+        const viewHeight = viewBox[3];
+        if (Number.isFinite(width) && width > 0 && (!Number.isFinite(height) || height <= 0)) {
+          height = width * (viewHeight / viewWidth);
+        } else if (Number.isFinite(height) && height > 0 && (!Number.isFinite(width) || width <= 0)) {
+          width = height * (viewWidth / viewHeight);
+        } else {
+          width = viewWidth;
+          height = viewHeight;
+        }
+      }
+
+      if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+        return null;
+      }
+      return { width, height };
+    }
+    catch {
+      return null;
+    }
+  }
+
+  async function rasterizeSvgFile(file) {
+    const svgText = await file.text();
+    const parsed = parseSvgDimensions(svgText);
+    const objectUrl = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml" }));
+
+    try {
+      const image = await loadImage(objectUrl);
+      let baseWidth = parsed ? parsed.width : image.naturalWidth;
+      let baseHeight = parsed ? parsed.height : image.naturalHeight;
+
+      if (!Number.isFinite(baseWidth) || baseWidth <= 0 || !Number.isFinite(baseHeight) || baseHeight <= 0) {
+        baseWidth = image.naturalWidth || 96;
+        baseHeight = image.naturalHeight || 96;
+      }
+
+      const targetWidth = VECTOR_RASTER_WIDTH;
+      const targetHeight = Math.max(
+        1,
+        Math.min(VECTOR_RASTER_MAX_HEIGHT, Math.round(targetWidth * baseHeight / baseWidth))
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("浏览器不支持 Canvas 2D");
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, targetWidth, targetHeight);
+      context.drawImage(image, 0, 0, targetWidth, targetHeight);
+      return canvas.toDataURL("image/png");
+    }
+    finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  async function prepareImageFile(file) {
+    return isSvgFile(file) ? rasterizeSvgFile(file) : readFileAsDataURL(file);
+  }
+
   function setBatchMessage(text, type = "info") {
     elements.batchMessage.textContent = text;
     elements.batchMessage.className = `message ${type}`;
@@ -368,19 +487,20 @@
     $(id).addEventListener("change", schedulePreview);
   }
 
-  elements.imageInput.addEventListener("change", () => {
+  elements.imageInput.addEventListener("change", async () => {
     const file = elements.imageInput.files[0];
     if (!file) {
       state.imageData = null;
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      state.imageData = String(reader.result);
+    try {
+      state.imageData = await prepareImageFile(file);
       refreshPreview();
-    };
-    reader.onerror = () => setMessage("读取图片失败", "error");
-    reader.readAsDataURL(file);
+    }
+    catch (error) {
+      state.imageData = null;
+      setMessage(`读取图片失败：${error.message}`, "error");
+    }
   });
 
   elements.batchFile.addEventListener("change", () => {

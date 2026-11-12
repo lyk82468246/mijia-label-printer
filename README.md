@@ -17,7 +17,7 @@ This project sends the printer's reverse-engineered command framing through the 
 - Print text labels
 - Print QR codes
 - Print barcodes
-- Print images
+- Print images, including SVG vector graphics through browser rasterization
 - Print composite labels: multiple text lines + QR code + barcode
 - Batch printing from CSV / TSV / XLSX / XLSM
 - Local web label designer with live preview
@@ -191,7 +191,9 @@ http://<your-lan-ip>:8071/
 
 A phone on the same Wi-Fi / LAN can scan that QR code and use the same designer. The browser sends print requests to the Python backend, which writes to the USB printer.
 
-The web UI supports text, QR codes, barcodes, images, composite labels, batch preview, batch dry-run, and batch printing.
+The web UI supports text, QR codes, barcodes, images (including SVG), composite labels, batch preview, batch dry-run, and batch printing.
+
+SVG files are rasterized in the browser at 8x print-head width (768 dots), then sent as a high-resolution PNG before the normal gamma-aware monochrome conversion. This preserves smooth vector edges without adding a native SVG dependency to the Python backend.
 
 ### Monochrome quality
 
