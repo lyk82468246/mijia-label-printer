@@ -55,6 +55,22 @@ USB 打印测试</textarea>
       <div id="field-barcode" class="field-group hidden">
         <label for="barcodeInput">条形码内容</label>
         <input id="barcodeInput" type="text" value="1234567890">
+
+        <div class="option-grid barcode-options">
+          <label>条码文字排列
+            <select id="barcodeTextLayout">
+              <option value="stacked">分行</option>
+              <option value="same-line">同行</option>
+            </select>
+          </label>
+          <label>条码内容字号
+            <input id="barcodeDataFontSize" type="number" min="6" max="72" value="9">
+          </label>
+          <label>附加文字字号
+            <input id="barcodeCaptionFontSize" type="number" min="6" max="72" value="9">
+          </label>
+        </div>
+
         <p class="hint">请使用所选条码格式支持的字符和长度。较长的条码会自动竖排，条码文字也会一起旋转，保证条宽足够、易于扫描。</p>
       </div>
 

@@ -90,6 +90,12 @@ Hide the number under the barcode:
 python mijia_label.py barcode "1234567890" --no-barcode-text
 ```
 
+Place additional text on the same line as the barcode text and set their font sizes separately:
+
+```powershell
+python mijia_label.py barcode "1234567890" --caption "Device A-01" --text-layout same-line --data-font-size 18 --caption-font-size 9
+```
+
 ### Composite label
 
 Text, QR code, and barcode on the same label:
@@ -180,6 +186,9 @@ The web UI supports text, QR codes, barcodes, images, composite labels, batch pr
 | `--qr-error l/m/q/s` | QR error correction level |
 | `--barcode-format NAME` | Barcode format, default `code128` |
 | `--no-barcode-text` | Do not print the barcode number |
+| `--text-layout stacked/same-line` | Barcode text layout; `same-line` puts caption beside the barcode text |
+| `--data-font-size N` | Font size for the barcode number |
+| `--caption-font-size N` | Font size for nearby barcode caption text |
 | `--caption TEXT` | Additional caption text |
 | `--spacing N` | Gap between composite label sections |
 | `--start N` | Batch starting row |

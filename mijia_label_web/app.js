@@ -25,6 +25,9 @@
     textInput: $("textInput"),
     qrInput: $("qrInput"),
     barcodeInput: $("barcodeInput"),
+    barcodeTextLayout: $("barcodeTextLayout"),
+    barcodeDataFontSize: $("barcodeDataFontSize"),
+    barcodeCaptionFontSize: $("barcodeCaptionFontSize"),
     imageInput: $("imageInput"),
     compositeText: $("compositeText"),
     compositeQr: $("compositeQr"),
@@ -86,6 +89,9 @@
       qr_error: elements.qrError.value,
       barcode_format: elements.barcodeFormat.value,
       no_barcode_text: elements.noBarcodeText.checked,
+      barcode_text_layout: elements.barcodeTextLayout.value,
+      barcode_data_font_size: Number(elements.barcodeDataFontSize.value),
+      barcode_caption_font_size: Number(elements.barcodeCaptionFontSize.value),
       caption: elements.caption.value,
     };
 
@@ -266,6 +272,9 @@
       qr_error: elements.qrError.value,
       barcode_format: elements.barcodeFormat.value,
       no_barcode_text: elements.noBarcodeText.checked,
+      barcode_text_layout: elements.barcodeTextLayout.value,
+      barcode_data_font_size: Number(elements.barcodeDataFontSize.value),
+      barcode_caption_font_size: Number(elements.barcodeCaptionFontSize.value),
       spacing: 4,
       caption: elements.caption.value,
     };
@@ -342,10 +351,11 @@
   elements.dryRunButton.addEventListener("click", () => printLabel(true));
 
   for (const id of [
-    "textInput", "qrInput", "barcodeInput", "compositeText", "compositeQr",
-    "compositeBarcode", "caption", "margin", "fontSize", "align", "rotation",
-    "lineSpacing", "threshold", "qrError", "barcodeFormat", "invert",
-    "noBarcodeText",
+    "textInput", "qrInput", "barcodeInput", "barcodeTextLayout",
+    "barcodeDataFontSize", "barcodeCaptionFontSize", "compositeText",
+    "compositeQr", "compositeBarcode", "caption", "margin", "fontSize",
+    "align", "rotation", "lineSpacing", "threshold", "qrError",
+    "barcodeFormat", "invert", "noBarcodeText",
   ]) {
     $(id).addEventListener("input", schedulePreview);
     $(id).addEventListener("change", schedulePreview);

@@ -28,6 +28,7 @@ import json
 import struct
 import sys
 import time
+from itertools import zip_longest
 from pathlib import Path
 
 from Crypto.Cipher import AES
@@ -589,6 +590,77 @@ def _draw_text_lines(image: Image.Image, lines: list[str], font, y: int) -> int:
     return y
 
 
+def _font_line_height(font) -> int:
+    try:
+        ascent, descent = font.getmetrics()
+        return max(1, ascent + descent)
+    except Exception:
+        return max(1, int(font.size * 1.25))
+
+
+def _barcode_text_rows(
+    data: str,
+    caption: str | None,
+    show_text: bool,
+    data_font,
+    caption_font,
+    max_width: int,
+    same_line: bool = False,
+) -> list[list[tuple[str, object]]]:
+    """Build barcode text rows; each row may contain differently sized segments."""
+    data_lines = wrap_text(str(data), data_font, max_width) if show_text and data else []
+    caption_lines = wrap_text(str(caption), caption_font, max_width) if caption else []
+
+    rows: list[list[tuple[str, object]]] = []
+    if same_line:
+        for data_line, caption_line in zip_longest(data_lines, caption_lines, fillvalue=""):
+            segments: list[tuple[str, object]] = []
+            if data_line:
+                segments.append((data_line, data_font))
+            if caption_line:
+                if segments:
+                    segments.append(("  " + caption_line, caption_font))
+                else:
+                    segments.append((caption_line, caption_font))
+            if segments:
+                rows.append(segments)
+    else:
+        rows.extend([[(line, data_font)] for line in data_lines])
+        rows.extend([[(line, caption_font)] for line in caption_lines])
+    return rows
+
+
+def _text_rows_metrics(rows: list[list[tuple[str, object]]]) -> tuple[int, int, list[int], list[int]]:
+    if not rows:
+        return 0, 0, [], []
+    temp = Image.new("L", (10, 10), 255)
+    draw = ImageDraw.Draw(temp)
+    row_widths: list[int] = []
+    row_heights: list[int] = []
+    for row in rows:
+        width = sum(draw.textlength(text, font=font) for text, font in row)
+        width += 6 * (len(row) - 1)
+        row_widths.append(max(1, round(width)))
+        row_heights.append(max(_font_line_height(font) for _, font in row) + 2)
+    return max(row_widths), sum(row_heights), row_widths, row_heights
+
+
+def _draw_text_rows(image: Image.Image, rows: list[list[tuple[str, object]]], y: int = 0) -> int:
+    if not rows:
+        return y
+    _, _, row_widths, row_heights = _text_rows_metrics(rows)
+    draw = ImageDraw.Draw(image)
+    for row, row_width, row_height in zip(rows, row_widths, row_heights):
+        max_ascent = max((font.getmetrics()[0] for _, font in row if hasattr(font, "getmetrics")), default=0)
+        x = (image.width - row_width) // 2
+        for text, font in row:
+            ascent, _descent = font.getmetrics()
+            draw.text((x, y + max_ascent - ascent), text, font=font, fill=0)
+            x += draw.textlength(text, font=font) + 6
+        y += row_height
+    return y
+
+
 def _render_vertical_barcode(
     code: str,
     data: str,
@@ -596,6 +668,9 @@ def _render_vertical_barcode(
     caption: str | None,
     font_path: str | None,
     font_size: int,
+    same_line: bool = False,
+    data_font_size: int | None = None,
+    caption_font_size: int | None = None,
     module_scale: int = 3,
     quiet_modules: int = 8,
     bar_height: int = 44,
@@ -607,46 +682,54 @@ def _render_vertical_barcode(
     3 dots while keeping the bar height inside the head width. Human-readable
     text is rotated with the symbol so it stays parallel to the bars.
     """
-    font = load_font(font_path, font_size)
+    data_font = load_font(font_path, data_font_size or font_size)
+    caption_font = load_font(font_path, caption_font_size or font_size)
     quiet = quiet_modules * module_scale
     symbol_height = len(code) * module_scale + quiet * 2
+    max_text_width = HEAD_WIDTH_DOTS - 8
 
-    text_lines: list[str] = []
-    if show_text and data:
-        text_lines.extend(wrap_text(str(data), font, HEAD_WIDTH_DOTS - 8))
-    if caption:
-        text_lines.extend(wrap_text(caption, font, HEAD_WIDTH_DOTS - 8))
+    text_rows = _barcode_text_rows(
+        data,
+        caption,
+        show_text,
+        data_font,
+        caption_font,
+        max_text_width,
+        same_line=same_line,
+    )
 
     height = symbol_height
     rotated_text: Image.Image | None = None
-    if text_lines:
-        temp = Image.new("L", (10, 10), 255)
-        temp_draw = ImageDraw.Draw(temp)
-        line_heights = [
-            temp_draw.textbbox((0, 0), line, font=font)[3] + 2
-            for line in text_lines
-        ]
-        text_width = max(1, round(max(temp_draw.textlength(line, font=font) for line in text_lines)))
-        text_height = max(1, sum(line_heights))
+    if text_rows:
+        text_width, text_height, _, _ = _text_rows_metrics(text_rows)
         text_canvas = Image.new("L", (text_width, text_height), 255)
-        _draw_text_lines(text_canvas, text_lines, font, 0)
+        _draw_text_rows(text_canvas, text_rows, 0)
         # The symbol is the horizontal barcode rotated 90 degrees clockwise;
         # rotate the text the same way so it remains parallel to the bars.
         rotated_text = text_canvas.transpose(Image.Transpose.ROTATE_270)
 
     image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
     draw = ImageDraw.Draw(image)
-    x0 = (HEAD_WIDTH_DOTS - bar_height) // 2
+
+    if rotated_text is None:
+        bar_x = (HEAD_WIDTH_DOTS - bar_height) // 2
+    else:
+        # Put the rotated text strip on the left and shift the symbol right.
+        # Shrink the symbol only when the selected font sizes require it.
+        text_x = 2
+        bar_x = rotated_text.width + 6
+        bar_height = min(bar_height, HEAD_WIDTH_DOTS - bar_x - 2)
+        bar_height = max(16, bar_height)
+
     for index, module in enumerate(code):
         if module == "1":
             y0 = quiet + index * module_scale
             draw.rectangle(
-                (x0, y0, x0 + bar_height - 1, y0 + module_scale - 1),
+                (bar_x, y0, bar_x + bar_height - 1, y0 + module_scale - 1),
                 fill=0,
             )
 
     if rotated_text is not None:
-        text_x = max(0, x0 - rotated_text.width - 2)
         text_y = quiet + (len(code) * module_scale - rotated_text.height) // 2
         text_y = max(0, min(text_y, height - rotated_text.height))
         image.paste(rotated_text, (text_x, text_y))
@@ -662,8 +745,12 @@ def make_barcode_label(
     font_path: str | None = None,
     font_size: int = 12,
     auto_vertical: bool = True,
+    text_layout: str = "stacked",
+    data_font_size: int | None = None,
+    caption_font_size: int | None = None,
 ) -> Image.Image:
     code = _barcode_module_code(data, barcode_format)
+    same_line = text_layout in ("same_line", "same-line")
     available = HEAD_WIDTH_DOTS - margin * 2
     quiet_modules = 8
     horizontal_scale = max(0, (available - quiet_modules * 2) // len(code))
@@ -676,22 +763,30 @@ def make_barcode_label(
             caption=caption,
             font_path=font_path,
             font_size=font_size,
+            same_line=same_line,
+            data_font_size=data_font_size,
+            caption_font_size=caption_font_size,
         )
 
+    data_font = load_font(font_path, data_font_size or font_size)
+    caption_font = load_font(font_path, caption_font_size or font_size)
     scale = max(1, horizontal_scale)
     quiet = quiet_modules * scale
     symbol_width = len(code) * scale + quiet * 2
     bar_height = min(32, max(12, available // 3))
-    font = load_font(font_path, font_size)
 
-    text_lines: list[str] = []
-    if show_text and data:
-        text_lines.extend(wrap_text(str(data), font, available))
-    if caption:
-        text_lines.extend(wrap_text(caption, font, available))
-    text_height = _text_block_height(text_lines, font)
+    text_rows = _barcode_text_rows(
+        data,
+        caption,
+        show_text,
+        data_font,
+        caption_font,
+        available,
+        same_line=same_line,
+    )
+    _, text_height, _, _ = _text_rows_metrics(text_rows)
 
-    height = margin * 2 + bar_height + (2 + text_height if text_lines else 0)
+    height = margin * 2 + bar_height + (2 + text_height if text_rows else 0)
     image = Image.new("L", (HEAD_WIDTH_DOTS, height), 255)
     draw = ImageDraw.Draw(image)
     x0 = (HEAD_WIDTH_DOTS - symbol_width) // 2
@@ -704,8 +799,8 @@ def make_barcode_label(
                 fill=0,
             )
 
-    if text_lines:
-        _draw_text_lines(image, text_lines, font, y0 + bar_height + 2)
+    if text_rows:
+        _draw_text_rows(image, text_rows, y0 + bar_height + 2)
     return image
 
 
@@ -1065,6 +1160,14 @@ def build_parser() -> argparse.ArgumentParser:
     barcode_parser = subparsers.add_parser("barcode", help="打印条形码")
     add_common_options(barcode_parser, suppressed=True)
     barcode_parser.add_argument("data", help="条形码内容")
+    barcode_parser.add_argument(
+        "--text-layout",
+        choices=["stacked", "same-line"],
+        default="stacked",
+        help="条码文字排列方式：stacked=分行，same-line=与条码内容同行",
+    )
+    barcode_parser.add_argument("--data-font-size", type=int, help="条码内容文字字号")
+    barcode_parser.add_argument("--caption-font-size", type=int, help="条码附近附加文字字号")
 
     composite_parser = subparsers.add_parser("composite", aliases=["combo"], help="打印文字+二维码+条形码组合标签")
     add_common_options(composite_parser, suppressed=True)
@@ -1135,6 +1238,9 @@ def main(argv: list[str] | None = None) -> int:
             caption=args.caption,
             font_path=args.font,
             font_size=max(8, args.font_size // 2),
+            text_layout=args.text_layout,
+            data_font_size=args.data_font_size,
+            caption_font_size=args.caption_font_size,
         )
     elif args.command in ("composite", "combo"):
         text = args.text.replace("\\n", "\n") if args.text else None
