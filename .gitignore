@@ -17,6 +17,7 @@ env/
 .batch_upload/
 .vendor/
 *.log
+label_server.pid
 *.zip
 
 # Generated label previews and local QR images

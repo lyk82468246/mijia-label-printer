@@ -162,6 +162,21 @@ Start the server:
 python mijia_label_server.py --host 0.0.0.0 --port 8071
 ```
 
+Or use the one-click launcher. It starts the backend in a hidden process, waits until it responds, opens the browser, and exits the terminal window:
+
+```powershell
+cmd /c start_label_printer.cmd
+```
+
+Useful launcher options:
+
+```powershell
+cmd /c start_label_printer.cmd -Port 8072
+cmd /c start_label_printer.cmd -NoBrowser
+```
+
+The launcher writes `label_server.log`, `label_server.error.log`, and `label_server.pid` beside the project files.
+
 Open locally:
 
 ```text
