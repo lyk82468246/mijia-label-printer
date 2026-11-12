@@ -96,6 +96,12 @@ Place additional text on the same line as the barcode text and set their font si
 python mijia_label.py barcode "1234567890" --caption "Device A-01" --text-layout same-line --data-font-size 18 --caption-font-size 9
 ```
 
+Set the barcode bar height in dots:
+
+```powershell
+python mijia_label.py barcode "1234567890" --barcode-height 72
+```
+
 ### Composite label
 
 Text, QR code, and barcode on the same label:
@@ -189,6 +195,7 @@ The web UI supports text, QR codes, barcodes, images, composite labels, batch pr
 | `--text-layout stacked/same-line` | Barcode text layout; `same-line` puts caption beside the barcode text |
 | `--data-font-size N` | Font size for the barcode number |
 | `--caption-font-size N` | Font size for nearby barcode caption text |
+| `--barcode-height N` | Barcode bar height in dots, `8`–`96` |
 | `--caption TEXT` | Additional caption text |
 | `--spacing N` | Gap between composite label sections |
 | `--start N` | Batch starting row |

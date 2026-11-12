@@ -28,6 +28,7 @@
     barcodeTextLayout: $("barcodeTextLayout"),
     barcodeDataFontSize: $("barcodeDataFontSize"),
     barcodeCaptionFontSize: $("barcodeCaptionFontSize"),
+    barcodeHeight: $("barcodeHeight"),
     imageInput: $("imageInput"),
     compositeText: $("compositeText"),
     compositeQr: $("compositeQr"),
@@ -92,6 +93,7 @@
       barcode_text_layout: elements.barcodeTextLayout.value,
       barcode_data_font_size: Number(elements.barcodeDataFontSize.value),
       barcode_caption_font_size: Number(elements.barcodeCaptionFontSize.value),
+      barcode_height: Number(elements.barcodeHeight.value),
       caption: elements.caption.value,
     };
 
@@ -275,6 +277,7 @@
       barcode_text_layout: elements.barcodeTextLayout.value,
       barcode_data_font_size: Number(elements.barcodeDataFontSize.value),
       barcode_caption_font_size: Number(elements.barcodeCaptionFontSize.value),
+      barcode_height: Number(elements.barcodeHeight.value),
       spacing: 4,
       caption: elements.caption.value,
     };
@@ -352,7 +355,8 @@
 
   for (const id of [
     "textInput", "qrInput", "barcodeInput", "barcodeTextLayout",
-    "barcodeDataFontSize", "barcodeCaptionFontSize", "compositeText",
+    "barcodeDataFontSize", "barcodeCaptionFontSize", "barcodeHeight",
+    "compositeText",
     "compositeQr", "compositeBarcode", "caption", "margin", "fontSize",
     "align", "rotation", "lineSpacing", "threshold", "qrError",
     "barcodeFormat", "invert", "noBarcodeText",

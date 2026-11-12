@@ -123,6 +123,12 @@ def render_label_image(payload: dict) -> Image.Image:
         default_text_size = max(8, font_size // 2)
         data_font_size = int(payload.get("barcode_data_font_size") or default_text_size)
         caption_font_size = int(payload.get("barcode_caption_font_size") or default_text_size)
+        barcode_height = payload.get("barcode_height")
+        barcode_height = (
+            max(8, min(96, int(barcode_height)))
+            if barcode_height not in (None, "")
+            else None
+        )
         return printer.make_barcode_label(
             str(payload.get("data", "")),
             barcode_format=payload.get("barcode_format", "code128"),
@@ -134,6 +140,7 @@ def render_label_image(payload: dict) -> Image.Image:
             text_layout=payload.get("barcode_text_layout", "stacked"),
             data_font_size=max(6, min(72, data_font_size)),
             caption_font_size=max(6, min(72, caption_font_size)),
+            barcode_height=barcode_height,
         )
     if kind == "composite":
         return printer.make_composite_label(
@@ -193,6 +200,7 @@ def batch_common_options(payload: dict) -> dict:
         "barcode_text_layout": payload.get("barcode_text_layout", "stacked"),
         "barcode_data_font_size": payload.get("barcode_data_font_size"),
         "barcode_caption_font_size": payload.get("barcode_caption_font_size"),
+        "barcode_height": payload.get("barcode_height"),
         "spacing": payload.get("spacing", 4),
         "caption": payload.get("caption"),
     }

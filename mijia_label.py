@@ -728,7 +728,7 @@ def _render_vertical_barcode(
         text_x = 2
         bar_x = rotated_text.width + 6
         bar_height = min(bar_height, HEAD_WIDTH_DOTS - bar_x - 2)
-        bar_height = max(16, bar_height)
+        bar_height = max(8, bar_height)
         bar_y = max(quiet, (height - module_length) // 2)
 
     for index, module in enumerate(code):
@@ -757,9 +757,15 @@ def make_barcode_label(
     text_layout: str = "stacked",
     data_font_size: int | None = None,
     caption_font_size: int | None = None,
+    barcode_height: int | None = None,
 ) -> Image.Image:
     code = _barcode_module_code(data, barcode_format)
     same_line = text_layout in ("same_line", "same-line")
+    requested_height = (
+        max(8, min(96, int(barcode_height)))
+        if barcode_height is not None
+        else None
+    )
     available = HEAD_WIDTH_DOTS - margin * 2
     quiet_modules = 8
     horizontal_scale = max(0, (available - quiet_modules * 2) // len(code))
@@ -775,6 +781,7 @@ def make_barcode_label(
             same_line=same_line,
             data_font_size=data_font_size,
             caption_font_size=caption_font_size,
+            bar_height=requested_height or 44,
         )
 
     data_font = load_font(font_path, data_font_size or font_size)
@@ -782,7 +789,7 @@ def make_barcode_label(
     scale = max(1, horizontal_scale)
     quiet = quiet_modules * scale
     symbol_width = len(code) * scale + quiet * 2
-    bar_height = min(32, max(12, available // 3))
+    bar_height = requested_height or min(32, max(12, available // 3))
 
     text_rows = _barcode_text_rows(
         data,
@@ -1177,6 +1184,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     barcode_parser.add_argument("--data-font-size", type=int, help="条码内容文字字号")
     barcode_parser.add_argument("--caption-font-size", type=int, help="条码附近附加文字字号")
+    barcode_parser.add_argument("--barcode-height", type=int, help="条码高度，单位：点（8-96）")
 
     composite_parser = subparsers.add_parser("composite", aliases=["combo"], help="打印文字+二维码+条形码组合标签")
     add_common_options(composite_parser, suppressed=True)
@@ -1205,6 +1213,9 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("margin 必须在 0-40 之间")
     if not 0 <= args.threshold <= 255:
         raise ValueError("threshold 必须在 0-255 之间")
+    barcode_height = getattr(args, "barcode_height", None)
+    if barcode_height is not None and not 8 <= barcode_height <= 96:
+        raise ValueError("条码高度必须在 8-96 点之间")
 
     if args.command == "text":
         image = make_text_label(
@@ -1250,6 +1261,7 @@ def main(argv: list[str] | None = None) -> int:
             text_layout=args.text_layout,
             data_font_size=args.data_font_size,
             caption_font_size=args.caption_font_size,
+            barcode_height=args.barcode_height,
         )
     elif args.command in ("composite", "combo"):
         text = args.text.replace("\\n", "\n") if args.text else None
