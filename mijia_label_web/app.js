@@ -394,4 +394,5 @@
   setKind("text");
   refreshStatus();
   refreshPreview();
+  setInterval(refreshStatus, 5000);
 })();
